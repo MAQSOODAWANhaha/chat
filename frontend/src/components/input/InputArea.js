@@ -10,7 +10,7 @@ import { useAppStore } from "@/store/useAppStore";
 export function InputArea() {
     const [value, setValue] = useState("");
     const { toast } = useToast();
-    const { getActiveConversation, addMessage, setLoading, createConversation, } = useAppStore();
+    const { getActiveConversation, addMessage, setLoading, createConversation, draftRoleId, draftSettings, } = useAppStore();
     const handleSubmit = async (event) => {
         event?.preventDefault();
         let conversation = getActiveConversation();
@@ -19,7 +19,7 @@ export function InputArea() {
             if (!content) {
                 return;
             }
-            const newConversationId = createConversation("general");
+            const newConversationId = createConversation(draftRoleId, draftSettings);
             conversation =
                 useAppStore
                     .getState()

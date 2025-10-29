@@ -44,4 +44,6 @@ export interface AppState {
   isSettingsOpen: boolean;
   isRecording: boolean;
   playingMessageId: string | null;
+  draftRoleId: string;
+  draftSettings: OutputSettings;
 }

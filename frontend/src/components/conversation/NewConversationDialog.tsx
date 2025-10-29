@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,16 +18,34 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { DEFAULT_OUTPUT_SETTINGS, ROLES } from "@/config/defaults";
+import { ROLES } from "@/config/defaults";
 import { useAppStore } from "@/store/useAppStore";
+import { useMobileBreakpoint } from "@/hooks/use-mobile";
 
 export function NewConversationDialog() {
   const [open, setOpen] = useState(false);
   const [roleId, setRoleId] = useState<string>("general");
-  const [showText, setShowText] = useState(DEFAULT_OUTPUT_SETTINGS.showText);
-  const [playAudio, setPlayAudio] = useState(DEFAULT_OUTPUT_SETTINGS.playAudio);
-  const [language, setLanguage] = useState(DEFAULT_OUTPUT_SETTINGS.language);
-  const { createConversation } = useAppStore();
+  const [showText, setShowText] = useState(true);
+  const [playAudio, setPlayAudio] = useState(true);
+  const [language, setLanguage] = useState<"en" | "zh">("en");
+  const {
+    createConversation,
+    draftRoleId,
+    draftSettings,
+    setDraftRole,
+    setDraftSettings,
+    setSidebarOpen,
+  } = useAppStore();
+  const isMobile = useMobileBreakpoint();
+
+  useEffect(() => {
+    if (open) {
+      setRoleId(draftRoleId);
+      setShowText(draftSettings.showText);
+      setPlayAudio(draftSettings.playAudio);
+      setLanguage(draftSettings.language);
+    }
+  }, [open, draftRoleId, draftSettings]);
 
   const handleCreate = () => {
     createConversation(roleId, {
@@ -35,7 +53,12 @@ export function NewConversationDialog() {
       showText,
       playAudio,
     });
+    setDraftRole(roleId);
+    setDraftSettings({ language, showText, playAudio });
     setOpen(false);
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
   };
 
   return (

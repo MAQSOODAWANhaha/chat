@@ -6,9 +6,10 @@ import { ConversationItem } from "./ConversationItem";
 
 interface ConversationListProps {
   activeConversationId: string | null;
+  onConversationSelect?: () => void;
 }
 
-export function ConversationList({ activeConversationId }: ConversationListProps) {
+export function ConversationList({ activeConversationId, onConversationSelect }: ConversationListProps) {
   const { conversations, switchConversation } = useAppStore();
 
   const sorted = [...conversations].sort(
@@ -26,7 +27,10 @@ export function ConversationList({ activeConversationId }: ConversationListProps
             roleId={conversation.roleId}
             updatedAt={format(conversation.updatedAt, "MM-dd HH:mm")}
             active={conversation.id === activeConversationId}
-            onSelect={() => switchConversation(conversation.id)}
+            onSelect={() => {
+              switchConversation(conversation.id);
+              onConversationSelect?.();
+            }}
           />
         ))}
         {sorted.length === 0 ? (

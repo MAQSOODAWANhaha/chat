@@ -3,12 +3,21 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/useAppStore";
 
 interface RoleSelectorProps {
-  conversationId: string;
+  conversationId?: string;
   currentRoleId: string;
+  onSelectRole?: (roleId: string) => void;
 }
 
-export function RoleSelector({ conversationId, currentRoleId }: RoleSelectorProps) {
+export function RoleSelector({ conversationId, currentRoleId, onSelectRole }: RoleSelectorProps) {
   const { updateConversationRole } = useAppStore();
+
+  const handleSelect = (roleId: string) => {
+    if (onSelectRole) {
+      onSelectRole(roleId);
+    } else if (conversationId) {
+      updateConversationRole(conversationId, roleId);
+    }
+  };
 
   return (
     <div className="grid gap-3">
@@ -19,7 +28,7 @@ export function RoleSelector({ conversationId, currentRoleId }: RoleSelectorProp
             "flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm transition",
             currentRoleId === role.id && "border-primary bg-primary/10"
           )}
-          onClick={() => updateConversationRole(conversationId, role.id)}
+          onClick={() => handleSelect(role.id)}
         >
           <div>
             <p className="text-sm font-semibold text-foreground">

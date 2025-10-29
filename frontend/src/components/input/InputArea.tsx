@@ -16,6 +16,8 @@ export function InputArea() {
     addMessage,
     setLoading,
     createConversation,
+    draftRoleId,
+    draftSettings,
   } = useAppStore();
 
   const handleSubmit = async (event?: FormEvent) => {
@@ -27,7 +29,7 @@ export function InputArea() {
       if (!content) {
         return;
       }
-      const newConversationId = createConversation("general");
+      const newConversationId = createConversation(draftRoleId, draftSettings);
       conversation =
         useAppStore
           .getState()

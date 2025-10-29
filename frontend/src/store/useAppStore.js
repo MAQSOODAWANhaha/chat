@@ -14,22 +14,26 @@ export const useAppStore = create((set, get) => ({
     conversations: [],
     activeConversationId: null,
     isLoading: false,
-    isSidebarOpen: true,
+    isSidebarOpen: false,
     isSettingsOpen: false,
     isRecording: false,
     playingMessageId: null,
-    createConversation: (roleId, settings = DEFAULT_OUTPUT_SETTINGS) => {
+    draftRoleId: ROLES[0]?.id ?? "general",
+    draftSettings: { ...DEFAULT_OUTPUT_SETTINGS },
+    createConversation: (roleId, settings) => {
         let newConversationId = "";
         set((state) => {
             const now = new Date();
+            const resolvedRoleId = roleId ?? get().draftRoleId;
             const configuredSettings = {
                 ...DEFAULT_OUTPUT_SETTINGS,
+                ...get().draftSettings,
                 ...settings,
             };
             const newConversation = {
                 id: uuidv4(),
                 title: "新对话",
-                roleId,
+                roleId: resolvedRoleId,
                 messages: [],
                 settings: configuredSettings,
                 createdAt: now,
@@ -39,6 +43,8 @@ export const useAppStore = create((set, get) => ({
             return {
                 conversations: [...state.conversations, newConversation],
                 activeConversationId: newConversation.id,
+                draftRoleId: resolvedRoleId,
+                draftSettings: configuredSettings,
             };
         });
         return newConversationId;
@@ -86,7 +92,9 @@ export const useAppStore = create((set, get) => ({
         }));
     },
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
+    setSidebarOpen: (open) => set({ isSidebarOpen: open }),
     toggleSettings: () => set((state) => ({ isSettingsOpen: !state.isSettingsOpen })),
+    setSettingsOpen: (open) => set({ isSettingsOpen: open }),
     setLoading: (loading) => set({ isLoading: loading }),
     setRecording: (recording) => set({ isRecording: recording }),
     setPlayingMessage: (messageId) => set({ playingMessageId: messageId }),
@@ -96,4 +104,8 @@ export const useAppStore = create((set, get) => ({
         return active ? withTimestamps(active) : null;
     },
     getRole: (roleId) => ROLES.find((role) => role.id === roleId),
+    setDraftRole: (roleId) => set({ draftRoleId: roleId }),
+    setDraftSettings: (settings) => set((state) => ({
+        draftSettings: { ...state.draftSettings, ...settings },
+    })),
 }));

@@ -10,7 +10,7 @@ import {
 import { DEFAULT_OUTPUT_SETTINGS, ROLES } from "@/config/defaults";
 
 interface AppStore extends AppState {
-  createConversation: (roleId: string, settings?: OutputSettings) => string;
+  createConversation: (roleId?: string, settings?: Partial<OutputSettings>) => string;
   switchConversation: (conversationId: string) => void;
   addMessage: (conversationId: string, message: Message) => void;
   updateConversationSettings: (
@@ -19,12 +19,16 @@ interface AppStore extends AppState {
   ) => void;
   updateConversationRole: (conversationId: string, roleId: string) => void;
   toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
   toggleSettings: () => void;
+  setSettingsOpen: (open: boolean) => void;
   setLoading: (loading: boolean) => void;
   setRecording: (recording: boolean) => void;
   setPlayingMessage: (messageId: string | null) => void;
   getActiveConversation: () => Conversation | null;
   getRole: (roleId: string) => Role | undefined;
+  setDraftRole: (roleId: string) => void;
+  setDraftSettings: (settings: Partial<OutputSettings>) => void;
 }
 
 const withTimestamps = (conversation: Conversation): Conversation => ({
@@ -41,24 +45,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isLoading: false,
-  isSidebarOpen: true,
+  isSidebarOpen: false,
   isSettingsOpen: false,
   isRecording: false,
   playingMessageId: null,
+  draftRoleId: ROLES[0]?.id ?? "general",
+  draftSettings: { ...DEFAULT_OUTPUT_SETTINGS },
 
-  createConversation: (roleId, settings = DEFAULT_OUTPUT_SETTINGS) => {
+  createConversation: (roleId, settings) => {
     let newConversationId = "";
     set((state) => {
       const now = new Date();
+      const resolvedRoleId = roleId ?? get().draftRoleId;
       const configuredSettings: OutputSettings = {
         ...DEFAULT_OUTPUT_SETTINGS,
+        ...get().draftSettings,
         ...settings,
       };
 
       const newConversation: Conversation = {
         id: uuidv4(),
         title: "新对话",
-        roleId,
+        roleId: resolvedRoleId,
         messages: [],
         settings: configuredSettings,
         createdAt: now,
@@ -70,6 +78,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return {
         conversations: [...state.conversations, newConversation],
         activeConversationId: newConversation.id,
+        draftRoleId: resolvedRoleId,
+        draftSettings: configuredSettings,
       };
     });
     return newConversationId;
@@ -130,7 +140,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
 
+  setSidebarOpen: (open) => set({ isSidebarOpen: open }),
+
   toggleSettings: () => set((state) => ({ isSettingsOpen: !state.isSettingsOpen })),
+
+  setSettingsOpen: (open) => set({ isSettingsOpen: open }),
 
   setLoading: (loading) => set({ isLoading: loading }),
 
@@ -147,4 +161,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   getRole: (roleId) => ROLES.find((role) => role.id === roleId),
+
+  setDraftRole: (roleId) => set({ draftRoleId: roleId }),
+
+  setDraftSettings: (settings) =>
+    set((state) => ({
+      draftSettings: { ...state.draftSettings, ...settings },
+    })),
 }));
