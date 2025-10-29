@@ -2,6 +2,12 @@ import { useRef } from "react";
 import { Mic, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/services/api";
 import { useAppStore } from "@/store/useAppStore";
@@ -15,6 +21,28 @@ export function VoiceButton({ onTranscribed }: VoiceButtonProps) {
   const chunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
   const { isRecording, setRecording } = useAppStore();
+  const supportsRecording =
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    window.isSecureContext &&
+    !!navigator.mediaDevices?.getUserMedia;
+
+  if (!supportsRecording) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" disabled>
+              <Mic className="h-5 w-5 opacity-50" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>请在支持麦克风的 HTTPS 环境中使用语音输入</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
 
   const startRecording = async () => {
     if (!navigator.mediaDevices) {
