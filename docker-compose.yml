@@ -2,7 +2,10 @@ version: "3.9"
 
 services:
   app:
-    image: gghtrt520/chat:latest
+    container_name: chat
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - HOST=0.0.0.0
