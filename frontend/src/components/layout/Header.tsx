@@ -17,7 +17,7 @@ export function Header() {
           </Button>
         ) : null}
         <div>
-          <p className="text-lg font-semibold">语言对话平台</p>
+          <p className="text-lg font-semibold">AI语音对话</p>
           <p className="text-sm text-muted-foreground">
             多角色多语言的实时 AI 对话体验
           </p>

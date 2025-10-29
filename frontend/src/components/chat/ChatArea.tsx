@@ -9,9 +9,9 @@ export function ChatArea() {
   if (!conversation) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2">
-        <h2 className="text-lg font-semibold">欢迎使用语言对话平台</h2>
+        <h2 className="text-lg font-semibold">欢迎使用AI对话</h2>
         <p className="max-w-md text-center text-sm text-muted-foreground">
-          创建一个新的会话或从列表中选择已有会话，开始与 AI 角色的多语言交流。
+          新建会话或从列表中选择已有会话，开始与 AI 角色的多语言交流。
         </p>
       </div>
     );
