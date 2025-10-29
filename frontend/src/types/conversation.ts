@@ -41,7 +41,6 @@ export interface AppState {
   activeConversationId: string | null;
   isLoading: boolean;
   isSidebarOpen: boolean;
-  isSettingsOpen: boolean;
   isRecording: boolean;
   playingMessageId: string | null;
   draftRoleId: string;

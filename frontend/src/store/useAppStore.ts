@@ -20,8 +20,6 @@ interface AppStore extends AppState {
   updateConversationRole: (conversationId: string, roleId: string) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
-  toggleSettings: () => void;
-  setSettingsOpen: (open: boolean) => void;
   setLoading: (loading: boolean) => void;
   setRecording: (recording: boolean) => void;
   setPlayingMessage: (messageId: string | null) => void;
@@ -46,7 +44,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeConversationId: null,
   isLoading: false,
   isSidebarOpen: false,
-  isSettingsOpen: false,
   isRecording: false,
   playingMessageId: null,
   draftRoleId: ROLES[0]?.id ?? "general",
@@ -142,10 +139,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setSidebarOpen: (open) => set({ isSidebarOpen: open }),
 
-  toggleSettings: () => set((state) => ({ isSettingsOpen: !state.isSettingsOpen })),
-
-  setSettingsOpen: (open) => set({ isSettingsOpen: open }),
-
   setLoading: (loading) => set({ isLoading: loading }),
 
   setRecording: (recording) => set({ isRecording: recording }),
@@ -168,4 +161,5 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       draftSettings: { ...state.draftSettings, ...settings },
     })),
+
 }));

@@ -9,6 +9,7 @@
       "@/*": ["src/*"]
     },
     "strict": true,
+    "noEmit": true,
     "jsx": "react-jsx",
     "resolveJsonModule": true,
     "isolatedModules": true,

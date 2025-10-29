@@ -3,3 +3,4 @@
 /frontend/dist
 /frontend/.vite
 /frontend/package-lock.json
+/frontend/tsconfig.app.tsbuildinfo
