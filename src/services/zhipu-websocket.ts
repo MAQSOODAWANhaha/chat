@@ -125,6 +125,7 @@ export class ZhipuRealtimeService {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 2000
+  private allowAutoReconnect = true
 
   // 状态管理
   private isConnected = false
@@ -218,6 +219,7 @@ export class ZhipuRealtimeService {
       }
 
       this.isConnecting = true
+      this.allowAutoReconnect = true
       this.updateConnectionState(false)
 
       const url = this.buildWebSocketUrl()
@@ -262,7 +264,8 @@ export class ZhipuRealtimeService {
           })
 
           // 自动重连
-          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          const isNormalClosure = event.code === 1000 || event.code === 1001 || event.wasClean
+          if (!isNormalClosure && this.allowAutoReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.scheduleReconnect()
           }
         }
@@ -296,6 +299,7 @@ export class ZhipuRealtimeService {
   disconnect() {
     this.clearReconnectTimer()
     this.stopHeartbeat()
+    this.allowAutoReconnect = false
 
     if (this.ws) {
       if (this.ws.readyState === WebSocket.OPEN) {
@@ -362,26 +366,10 @@ export class ZhipuRealtimeService {
 
   // 发送文本消息
   sendTextMessage(text: string) {
-    const itemId = globalThis.crypto?.randomUUID
-      ? globalThis.crypto.randomUUID()
-      : `item-${Date.now()}`
-
-    this.processedConversationItemIds.add(itemId)
-
     this.sendMessage({
-      type: MessageType.CONVERSATION_ITEM_CREATE,
-      item: {
-        id: itemId,
-        type: 'message',
-        object: 'realtime.item',
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text
-          }
-        ]
-      }
+      type: MessageType.TEXT_APPEND,
+      client_timestamp: Date.now(),
+      text
     })
 
     this.sendMessage({
