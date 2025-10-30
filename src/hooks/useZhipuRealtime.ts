@@ -87,33 +87,24 @@ export function useZhipuRealtime(options: UseZhipuRealtimeOptions = {}) {
 
     // 音频响应开始
     service.onMessage(MessageType.RESPONSE_AUDIO_DELTA, (message) => {
-      if (message.data?.audio) {
-        console.log('收到音频数据:', message.data.audio.length, '字符')
+      const audioBase64 = message.delta ?? message.audio ?? message.data?.audio
+      if (audioBase64) {
+        console.log('收到音频数据:', audioBase64.length, '字符')
         // 这里可以播放音频数据
       }
     })
 
     // 文本响应开始
     service.onMessage(MessageType.RESPONSE_TEXT_DELTA, (message) => {
-      if (message.data?.text) {
-        currentResponseRef.current += message.data.text
+      const delta = message.delta ?? message.text ?? message.data?.text
+      if (delta) {
+        currentResponseRef.current += delta
       }
     })
 
     // 响应完成
     service.onMessage(MessageType.RESPONSE_DONE, () => {
-      if (currentResponseRef.current) {
-        addMessage({
-          id: Date.now().toString(),
-          content: currentResponseRef.current,
-          sender: 'assistant',
-          type: 'text',
-          isRead: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        currentResponseRef.current = ''
-      }
+      currentResponseRef.current = ''
       setAiResponseStatus('idle')
     })
 

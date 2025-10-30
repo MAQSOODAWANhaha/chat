@@ -31,6 +31,9 @@ export enum MessageType {
   RESPONSE_CREATED = 'response.created',
   RESPONSE_CANCEL = 'response.cancel',
   RESPONSE_CANCELLED = 'response.cancelled',
+  RESPONSE_OUTPUT_ITEM_ADDED = 'response.output_item.added',
+  RESPONSE_OUTPUT_ITEM_DONE = 'response.output_item.done',
+  RESPONSE_CONTENT_PART_ADDED = 'response.content_part.added',
   RESPONSE_AUDIO_TRANSCRIPT_DELTA = 'response.audio_transcript.delta',
   RESPONSE_AUDIO_TRANSCRIPT_DONE = 'response.audio_transcript.done',
   RESPONSE_AUDIO_DELTA = 'response.audio.delta',
@@ -41,6 +44,11 @@ export enum MessageType {
 
   // 对话相关
   CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED = 'conversation.item.input_audio_transcription.completed',
+  CONVERSATION_ITEM_CREATE = 'conversation.item.create',
+  CONVERSATION_ITEM_DELETE = 'conversation.item.delete',
+  CONVERSATION_ITEM_RETRIEVE = 'conversation.item.retrieve',
+  CONVERSATION_ITEM_CREATED = 'conversation.item.created',
+  CONVERSATION_ITEM_DELETED = 'conversation.item.deleted',
 
   // 其他
   ERROR = 'error',
@@ -83,6 +91,33 @@ export interface ConnectionConfig {
   };
 }
 
+export interface RealtimeContentPart {
+  type: string
+  text?: string
+  audio?: string
+  transcript?: string
+}
+
+export interface RealtimeConversationItem {
+  id?: string
+  type: string
+  object: string
+  status?: string
+  role?: string
+  content?: RealtimeContentPart[]
+  name?: string
+  arguments?: string
+  output?: string
+}
+
+export interface RealtimeResponse {
+  id: string
+  object: string
+  status: string
+  usage?: Record<string, unknown>
+  [key: string]: any
+}
+
 export class ZhipuRealtimeService {
   private ws: WebSocket | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
@@ -104,6 +139,9 @@ export class ZhipuRealtimeService {
   // 会话相关
   private currentResponseId: string | null = null
   private responseId: string | null = null
+  private activeResponseItemId: string | null = null
+  private processedConversationItemIds: Set<string> = new Set()
+  private serverSessionModel: string | null = null
 
   // 事件回调
   private onMessageCallbacks: Map<string, ((data: any) => void)[]> = new Map()
@@ -113,7 +151,7 @@ export class ZhipuRealtimeService {
     this.config = {
       domain: 'wss://open.bigmodel.cn',
       proxyPath: '/api/paas/v4/realtime',
-      model: 'glm-4-realtime',
+      model: 'glm-realtime',
       modalities: ['audio', 'text'],
       turn_detection: {
         type: 'client_vad',
@@ -300,6 +338,14 @@ export class ZhipuRealtimeService {
     })
   }
 
+  // 上传视频帧
+  sendVideoFrame(frameBase64: string) {
+    this.sendMessage({
+      type: MessageType.VIDEO_APPEND,
+      video_frame: frameBase64
+    })
+  }
+
   // 提交音频数据
   commitAudioData() {
     this.sendMessage({
@@ -307,16 +353,63 @@ export class ZhipuRealtimeService {
     })
   }
 
+  // 清空音频缓冲区
+  clearAudioBuffer() {
+    this.sendMessage({
+      type: MessageType.AUDIO_CLEAR
+    })
+  }
+
   // 发送文本消息
   sendTextMessage(text: string) {
+    const itemId = globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : `item-${Date.now()}`
+
+    this.processedConversationItemIds.add(itemId)
+
     this.sendMessage({
-      type: MessageType.TEXT_APPEND,
-      text: text
+      type: MessageType.CONVERSATION_ITEM_CREATE,
+      item: {
+        id: itemId,
+        type: 'message',
+        object: 'realtime.item',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text
+          }
+        ]
+      }
     })
 
-    // 自动创建响应
     this.sendMessage({
       type: MessageType.RESPONSE_CREATE
+    })
+  }
+
+  // 通用：创建对话项
+  createConversationItem(item: RealtimeConversationItem) {
+    this.sendMessage({
+      type: MessageType.CONVERSATION_ITEM_CREATE,
+      item
+    })
+  }
+
+  // 删除对话项
+  deleteConversationItem(itemId: string) {
+    this.sendMessage({
+      type: MessageType.CONVERSATION_ITEM_DELETE,
+      item_id: itemId
+    })
+  }
+
+  // 查询对话项
+  retrieveConversationItem(itemId: string) {
+    this.sendMessage({
+      type: MessageType.CONVERSATION_ITEM_RETRIEVE,
+      item_id: itemId
     })
   }
 
@@ -331,7 +424,7 @@ export class ZhipuRealtimeService {
   private createSession() {
     this.sendMessage({
       type: MessageType.SESSION_CREATE,
-      model: this.config.model,
+      model: this.config.model || 'glm-realtime',
       voice: this.config.voice,
       instructions: this.config.instructions,
       input_audio_format: this.config.input_audio_format,
@@ -366,6 +459,15 @@ export class ZhipuRealtimeService {
         case MessageType.RESPONSE_CREATED:
           this.handleResponseCreated(message)
           break
+        case MessageType.RESPONSE_OUTPUT_ITEM_ADDED:
+          this.handleResponseOutputItemAdded(message)
+          break
+        case MessageType.RESPONSE_OUTPUT_ITEM_DONE:
+          this.handleResponseOutputItemDone(message)
+          break
+        case MessageType.RESPONSE_CONTENT_PART_ADDED:
+          this.handleResponseContentPartAdded(message)
+          break
         case MessageType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
           this.handleResponseAudioTranscript(message)
           break
@@ -385,13 +487,19 @@ export class ZhipuRealtimeService {
           this.handleResponseTextDone()
           break
         case MessageType.RESPONSE_DONE:
-          this.handleResponseDone()
+          this.handleResponseDone(message)
           break
         case MessageType.RESPONSE_CANCELLED:
           this.handleResponseCancelled(message)
           break
         case MessageType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
           this.handleInputAudioTranscriptionCompleted(message)
+          break
+        case MessageType.CONVERSATION_ITEM_CREATED:
+          this.handleConversationItemCreated(message)
+          break
+        case MessageType.CONVERSATION_ITEM_DELETED:
+          this.handleConversationItemDeleted(message)
           break
         case MessageType.SPEECH_STARTED:
           this.handleSpeechStarted()
@@ -405,9 +513,44 @@ export class ZhipuRealtimeService {
     }
   }
 
+  private appendResponseText(delta?: string) {
+    if (!delta) return
+    this.currentResponse += delta
+    console.log('收到AI文本:', delta)
+  }
+
+  private extractTextFromContent(content?: RealtimeContentPart[]) {
+    if (!content || !Array.isArray(content)) {
+      return ''
+    }
+
+    return content.reduce((acc, part) => {
+      if (!part) return acc
+      if (typeof part.text === 'string' && part.text.length) {
+        return acc + part.text
+      }
+      if (typeof part.transcript === 'string' && part.transcript.length) {
+        return acc + part.transcript
+      }
+      return acc
+    }, '')
+  }
+
+  private mapRoleToSender(role?: string): 'user' | 'assistant' | 'system' {
+    switch (role) {
+      case 'assistant':
+        return 'assistant'
+      case 'system':
+        return 'system'
+      default:
+        return 'user'
+    }
+  }
+
   // 处理会话创建成功
   private handleSessionCreated(message: any) {
     console.log('会话创建成功:', message)
+    this.serverSessionModel = message.session?.model ?? null
     setTimeout(() => {
       this.updateSession()
     }, 100)
@@ -415,11 +558,18 @@ export class ZhipuRealtimeService {
 
   // 更新会话参数
   private updateSession() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('跳过会话更新：WebSocket未连接')
+      return
+    }
+
+    const model = this.config.model || this.serverSessionModel || 'glm-realtime'
+
     this.sendMessage({
       type: MessageType.SESSION_UPDATE,
       event_id: `evt_${Date.now()}`,
       session: {
-        model: this.config.model,
+        model,
         modalities: this.config.modalities,
         turn_detection: this.config.turn_detection,
         instructions: this.config.instructions,
@@ -452,21 +602,54 @@ export class ZhipuRealtimeService {
     if (message.response?.id) {
       this.responseId = message.response.id
     }
+    this.activeResponseItemId = null
+    this.currentResponse = ''
     this.setAiResponseStatus('thinking')
+  }
+
+  private handleResponseOutputItemAdded(message: any) {
+    const item = message.item as RealtimeConversationItem | undefined
+    if (item?.id) {
+      this.activeResponseItemId = item.id
+    }
+
+    if (item?.content?.length) {
+      const text = this.extractTextFromContent(item.content)
+      this.appendResponseText(text)
+    }
+  }
+
+  private handleResponseOutputItemDone(message: any) {
+    const item = message.item as RealtimeConversationItem | undefined
+    if (item?.id && item.id === this.activeResponseItemId) {
+      this.activeResponseItemId = null
+    }
+    if (item?.content?.length) {
+      const text = this.extractTextFromContent(item.content)
+      this.appendResponseText(text)
+    }
+  }
+
+  private handleResponseContentPartAdded(message: any) {
+    const content: RealtimeContentPart[] | undefined = message.content_part?.content
+      || message.content
+      || message.item?.content
+
+    const text = this.extractTextFromContent(content)
+    this.appendResponseText(text)
   }
 
   // 处理AI回复文本
   private handleResponseAudioTranscript(message: any) {
-    if (message.delta) {
-      this.currentResponse += message.delta
-      console.log('收到AI文本:', message.delta)
-    }
+    const delta = message.delta ?? message.transcript ?? message.text
+    this.appendResponseText(delta)
   }
 
   // 处理AI回复音频
   private handleResponseAudio(message: any) {
-    if (message.delta) {
-      console.log('收到AI音频:', message.delta.length, '字符')
+    const audioData = message.delta ?? message.audio
+    if (audioData) {
+      console.log('收到AI音频:', audioData.length, '字符')
       // 这里可以播放音频数据
     }
   }
@@ -481,7 +664,40 @@ export class ZhipuRealtimeService {
 
   private handleResponseCancelled(message: any) {
     console.log('响应已取消:', message)
+    this.currentResponse = ''
+    this.activeResponseItemId = null
     this.setAiResponseStatus('idle')
+  }
+
+  private handleConversationItemCreated(message: any) {
+    const item = message.item as RealtimeConversationItem | undefined
+    if (!item?.id || this.processedConversationItemIds.has(item.id)) {
+      return
+    }
+
+    this.processedConversationItemIds.add(item.id)
+
+    if (item.type === 'message' && item.role === 'assistant' && item.content?.length) {
+      const text = this.extractTextFromContent(item.content)
+      if (text) {
+        this.addMessage({
+          id: item.id,
+          content: text,
+          sender: this.mapRoleToSender(item.role),
+          type: 'text',
+          isRead: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+      }
+    }
+  }
+
+  private handleConversationItemDeleted(message: any) {
+    const item = message.item as RealtimeConversationItem | undefined
+    if (item?.id) {
+      this.processedConversationItemIds.delete(item.id)
+    }
   }
 
   private handleResponseTextDone() {
@@ -492,12 +708,18 @@ export class ZhipuRealtimeService {
   private handleInputAudioTranscriptionCompleted(message: any) {
     if (message.transcript) {
       console.log('用户音频转录:', message.transcript)
+      const messageId = message.item_id || `user-${Date.now()}`
+      if (typeof message.item_id === 'string') {
+        this.processedConversationItemIds.add(message.item_id)
+      }
       this.addMessage({
-        id: Date.now().toString(),
+        id: messageId,
         content: message.transcript,
         sender: 'user',
         type: 'text',
+        isRead: true,
         createdAt: new Date(),
+        updatedAt: new Date(),
       })
     }
   }
@@ -523,25 +745,40 @@ export class ZhipuRealtimeService {
   // 处理文本数据
   private currentResponse = ''
   private handleTextDelta(message: any) {
-    const delta = message.delta ?? message.data?.text
-    if (delta) {
-      this.currentResponse += delta
-      console.log('收到文本数据:', delta)
-    }
+    const delta = message.delta ?? message.text ?? message.data?.text
+    this.appendResponseText(delta)
   }
 
   // 处理响应完成
-  private handleResponseDone() {
+  private handleResponseDone(message: any) {
+    const response: RealtimeResponse | undefined = message.response
+    const status = response?.status || message.status
+
+    if (status && status !== 'completed') {
+      this.currentResponse = ''
+      this.activeResponseItemId = null
+      this.setAiResponseStatus('idle')
+      return
+    }
+
     if (this.currentResponse) {
-      this.addMessage({
-        id: Date.now().toString(),
-        content: this.currentResponse,
-        sender: 'assistant',
-        type: 'text',
-        createdAt: new Date(),
-      })
+      const messageId = this.activeResponseItemId || response?.id || `assistant-${Date.now()}`
+      if (!this.processedConversationItemIds.has(messageId)) {
+        this.addMessage({
+          id: messageId,
+          content: this.currentResponse,
+          sender: 'assistant',
+          type: 'text',
+          isRead: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        this.processedConversationItemIds.add(messageId)
+      }
       this.currentResponse = ''
     }
+
+    this.activeResponseItemId = null
     this.setAiResponseStatus('idle')
   }
 

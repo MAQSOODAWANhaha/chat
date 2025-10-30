@@ -99,7 +99,7 @@ export default function TestConnection() {
       type: messageType,
       client_timestamp: Date.now(),
       ...(messageType === 'session.create' && {
-        model: 'glm-4-realtime',
+        model: 'glm-realtime',
         voice: 'alloy',
         instructions: '你是一个智能助手，请用简洁明了的语言回答问题。',
         input_audio_format: 'pcm16',

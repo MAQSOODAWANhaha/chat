@@ -14,7 +14,7 @@ export const DEFAULT_API_CONFIG = {
 
 // 默认模型配置
 export const DEFAULT_MODEL_CONFIG = {
-  model: 'glm-4-realtime',
+  model: 'glm-realtime',
   temperature: 0.7,
   max_tokens: 1024,
   top_p: 0.9,
@@ -23,7 +23,7 @@ export const DEFAULT_MODEL_CONFIG = {
 
 // 默认实时会话配置
 export const DEFAULT_REALTIME_CONFIG = {
-  model: 'glm-4-realtime',
+  model: 'glm-realtime',
   voice: 'alloy',
   input_audio_format: 'pcm16' as const,
   output_audio_format: 'pcm16' as const,

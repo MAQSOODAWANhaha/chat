@@ -16,7 +16,7 @@ export type ModelConfig = z.infer<typeof ModelConfigSchema>
 
 // 实时会话配置
 export const RealtimeSessionConfigSchema = z.object({
-  model: z.string().default('glm-4-realtime'),
+  model: z.string().default('glm-realtime'),
   voice: z.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).default('alloy'),
   instructions: z.string().optional(),
   input_audio_format: z.enum(['pcm16', 'g711_ulaw', 'g711_alaw']).default('pcm16'),
