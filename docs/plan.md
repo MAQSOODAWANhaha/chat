@@ -28,64 +28,67 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        客户端层                              │
-│  ┌────────────────┐              ┌────────────────┐         │
-│  │  PC Browser    │              │ Mobile Browser │         │
-│  │  React + TS    │              │  React + TS    │         │
-│  │  shadcn/ui     │              │  shadcn/ui     │         │
-│  └────────────────┘              └────────────────┘         │
-└─────────────────────────────────────────────────────────────┘
-                    ↓ ↑ HTTP/HTTPS (REST API)
-┌─────────────────────────────────────────────────────────────┐
-│                     API Gateway 层                           │
+│                        客户端层 (Frontend)                     │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              Axum Web Server                         │   │
-│  │  • CORS 处理                                         │   │
-│  │  • 路由管理                                          │   │
-│  │  • 静态文件服务                                       │   │
-│  │  • 请求日志                                          │   │
+│  │    React + TS + Zustand                              │   │
+│  │    (管理UI状态, 处理WebSocket连接)                   │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
-                    ↓ ↑
+                    ↓ ↑ WebSocket (实时双向通信)
 ┌─────────────────────────────────────────────────────────────┐
-│                     业务逻辑层                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │ LLM Service │  │ TTS Service │  │ STT Service │        │
-│  │ (对话生成)  │  │ (语音合成)  │  │ (语音识别)  │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘        │
-│  ┌─────────────┐                                            │
-│  │Role Service │                                            │
-│  │(角色管理)   │                                            │
-│  └─────────────┘                                            │
+│                  后端网关层 (Backend Gateway)                │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              Axum Web Server                         │   │
+│  │  • 管理与客户端的 WebSocket 连接                     │   │
+│  │  • 作为代理连接到第三方实时语音服务                  │   │
+│  │  • 转发与转换消息                                    │   │
+│  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
-                    ↓ ↑
+                    ↓ ↑ WebSocket (实时双向通信)
 ┌─────────────────────────────────────────────────────────────┐
-│                   第三方服务层                               │
-│  ┌──────────────────┐         ┌──────────────────┐         │
-│  │   OpenAI API     │         │  本地文件存储    │         │
-│  │  • GPT-4/3.5     │         │  ./audio/*.mp3   │         │
-│  │  • Whisper       │         │                  │         │
-│  │  • TTS-1         │         │                  │         │
-│  └──────────────────┘         └──────────────────┘         │
+│                   第三方实时语音服务层                       │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │         豆包端到端实时语音大模型 API                 │   │
+│  │         (处理 STT -> LLM -> TTS)                     │   │
+│  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### 1.2 数据流向
 
-#### 1.2.1 文字对话流程
-```
-用户输入文字 → 前端验证 → POST /api/chat
-→ LLM Service → OpenAI API → 生成回复
-→ (如果开启语音) TTS Service → 生成音频
-→ 返回 {message, audioUrl?} → 前端渲染
-```
+整体交互基于持久化的 WebSocket 连接和异步事件驱动。
 
-#### 1.2.2 语音输入流程
 ```
-用户录音 → MediaRecorder → Blob
-→ FormData → POST /api/speech-to-text
-→ STT Service → Whisper API → 识别文字
-→ 返回 {text} → 自动触发对话流程
+客户端                                后端 (Axum Gateway)                   豆包 Realtime API
+   |                                       |
+   | 1. 发起 WebSocket 连接到 /api/chat  |
+   ├──────────────────────────────────────>|
+   |                                       | 2. 验证通过, 建立与豆包API的WS连接
+   |                                       ├───────────────────────────────────>
+   |                                       |
+   | <───────────────────────────────────┤ 3. 连接成功, 双向代理已就绪
+   |                                       |
+   | 4. 发送 StartSession 事件 (JSON)       |
+   ├──────────────────────────────────────>| 5. 转发 StartSession
+   |                                       ├───────────────────────────────────>
+   |                                       |
+   | <───────────────────────────────────┤ 6. 收到 SessionStarted, 转发给客户端
+   | <─────────────────────────────────────┤
+   |                                       |
+   | 7. 发送音频流 (Binary)                 |
+   ├──────────────────────────────────────>| 8. 转发音频流
+   |                                       ├───────────────────────────────────>
+   |                                       |
+   |                                       |             +--------------------+
+   |                                       |             |   ASR -> LLM -> TTS  |
+   |                                       |             +--------------------+
+   |                                       |
+   | <───────────────────────────────────┤ 9. 收到 ASR/TTS/Chat 事件
+   | <─────────────────────────────────────┤ 10. 转发事件给客户端 (JSON / Binary)
+   |                                       |
+   | 11. 客户端渲染识别文本、播放音频       |
+   |                                       |
+
 ```
 
 #### 1.2.3 对话管理流程
@@ -147,23 +150,21 @@
 
 ```toml
 [dependencies]
-# Web 框架
-axum = { version = "0.8", features = ["multipart", "macros"] }
+# Web 框架与 WebSocket
+axum = { version = "0.8", features = ["ws", "macros"] } # 启用 ws 特性
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+
+# WebSocket 客户端
+tokio-tungstenite = { version = "0.23", features = ["native-tls"] }
 
 # 序列化
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# HTTP 客户端
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
-
 # 工具库
 uuid = { version = "1.18", features = ["v4", "serde"] }
-bytes = "1.10"
-tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 
 # 配置和环境变量
@@ -314,50 +315,34 @@ export const ROLES: Role[] = [
 
 ### 3.2 后端数据模型
 
-#### 3.2.1 请求/响应类型
+由于核心交互变为 WebSocket，后端的 HTTP 数据模型将大幅简化，主要为 WebSocket 消息定义。
 
 ```rust
-// src/models.rs
+// src/models/realtime.rs
 
 use serde::{Deserialize, Serialize};
 
-/// 聊天消息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    pub role: String,      // "user" | "assistant" | "system"
-    pub content: String,
+/// 客户端通过 WebSocket 发送给后端的消息
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "event", content = "payload")]
+pub enum ClientMessage {
+    StartSession { role_id: String, language: String },
+    AudioData(Vec<u8>), // 二进制音频数据将直接在WebSocket消息中传输
+    TextInput { text: String },
+    FinishSession,
 }
 
-/// 聊天请求
-#[derive(Debug, Deserialize)]
-pub struct ChatRequest {
-    pub message: String,              // 用户消息
-    pub history: Vec<ChatMessage>,    // 对话历史
-    pub role_id: String,              // 角色 ID
-    pub language: String,             // 输出语言
-    pub enable_audio: bool,           // 是否生成音频
-}
-
-/// 聊天响应
-#[derive(Debug, Serialize)]
-pub struct ChatResponse {
-    pub message: String,              // AI 回复文字
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_url: Option<String>,    // 音频 URL（可选）
-}
-
-/// 语音转文字请求（multipart/form-data）
-/// 响应
-#[derive(Debug, Serialize)]
-pub struct STTResponse {
-    pub text: String,                 // 识别的文字
-}
-
-/// 错误响应
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub error: String,
-    pub message: String,
+/// 后端通过 WebSocket 发送给客户端的消息
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "event", content = "payload")]
+pub enum ServerMessage {
+    SessionStarted { session_id: String },
+    SessionFailed { error: String },
+    ASRResult { text: String, is_final: bool },
+    LLMResponse { text: String },
+    AudioData(Vec<u8>), // 二进制音频数据
+    SessionFinished,
+    Error { message: String },
 }
 ```
 
@@ -365,116 +350,37 @@ pub struct ErrorResponse {
 
 ## 4. API 接口设计
 
-### 4.1 接口清单
+原有的 REST API 模式被新的实时 WebSocket API 取代。
 
-| 方法 | 路径 | 描述 | 请求体 | 响应体 |
-|------|------|------|--------|--------|
-| POST | `/api/chat` | 发送消息获取 AI 回复 | `ChatRequest` | `ChatResponse` |
-| POST | `/api/speech-to-text` | 语音转文字 | `multipart/form-data` | `STTResponse` |
-| GET | `/audio/{filename}` | 获取音频文件 | - | `audio/mpeg` |
-| GET | `/health` | 健康检查 | - | `OK` |
+### 4.1 核心接口
 
-### 4.2 详细接口文档
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/chat` | **WebSocket 升级点**。客户端通过此路径建立与后端网关的 WebSocket 连接。 |
+| GET | `/health` | 健康检查 (保留) |
 
-#### 4.2.1 POST /api/chat
+### 4.2 WebSocket 通信协议
 
-**功能**：发送用户消息，获取 AI 回复（包含文字和可选的语音）
+一旦连接建立，前后端将通过 JSON 格式的文本消息和原始二进制消息进行通信。
 
-**请求头**：
-```
-Content-Type: application/json
-```
+#### 4.2.1 客户端 -> 后端
 
-**请求体**：
-```json
-{
-  "message": "Hello, how are you?",
-  "history": [
-    {
-      "role": "system",
-      "content": "You are a friendly assistant..."
-    },
-    {
-      "role": "user",
-      "content": "Hi there!"
-    },
-    {
-      "role": "assistant",
-      "content": "Hello! How can I help you today?"
-    }
-  ],
-  "role_id": "general",
-  "language": "en",
-  "enable_audio": true
-}
-```
+客户端发送 JSON 消息来控制会话和发送文本。
 
-**响应**（成功 200）：
-```json
-{
-  "message": "I'm doing great, thank you for asking! How about you?",
-  "audio_url": "/audio/550e8400-e29b-41d4-a716-446655440000.mp3"
-}
-```
+- **开始会话**: `{"event":"StartSession","payload":{"role_id":"general","language":"zh"}}`
+- **发送文本**: `{"event":"TextInput","payload":{"text":"你好"}}`
+- **结束会话**: `{"event":"FinishSession"}`
+- **发送音频**: 客户端直接发送**二进制 (Binary)** 格式的音频数据帧。
 
-**响应**（失败 500）：
-```json
-{
-  "error": "LLMError",
-  "message": "Failed to generate response"
-}
-```
+#### 4.2.2 后端 -> 客户端
 
----
+后端将第三方服务的事件转发或转换为统一格式发送给客户端。
 
-#### 4.2.2 POST /api/speech-to-text
-
-**功能**：上传音频文件，识别为文字
-
-**请求头**：
-```
-Content-Type: multipart/form-data
-```
-
-**请求体**：
-```
-FormData:
-  audio: [Binary File] (WebM/MP3/WAV)
-```
-
-**响应**（成功 200）：
-```json
-{
-  "text": "Hello, how are you?"
-}
-```
-
-**响应**（失败 400）：
-```json
-{
-  "error": "BadRequest",
-  "message": "No audio file provided"
-}
-```
-
----
-
-#### 4.2.3 GET /audio/{filename}
-
-**功能**：获取生成的音频文件
-
-**请求示例**：
-```
-GET /audio/550e8400-e29b-41d4-a716-446655440000.mp3
-```
-
-**响应头**：
-```
-Content-Type: audio/mpeg
-Content-Length: 45678
-```
-
-**响应体**：二进制音频数据
+- **会话成功**: `{"event":"SessionStarted","payload":{"session_id":"..."}}`
+- **识别结果**: `{"event":"ASRResult","payload":{"text":"你好","is_final":false}}`
+- **AI 回复文本**: `{"event":"LLMResponse","payload":{"text":"你好啊！"}}`
+- **收到音频**: 后端直接转发**二进制 (Binary)** 格式的音频数据帧给客户端。
+- **错误**: `{"event":"Error","payload":{"message":"..."}}`
 
 ---
 
@@ -937,50 +843,43 @@ export const api = new ApiService();
 
 ---
 
-## 6. 后端设计
+## 6. 后端设计 (WebSocket 网关)
 
-### 6.1 项目结构
+原有的 RESTful 服务 (LLM, TTS, STT) 被统一的 WebSocket 网关取代。后端的核心职责是作为一个安全的、有状态的代理，连接前端客户端和后端的实时语音服务。
+
+### 6.1 项目结构 (新)
 
 ```
 backend/
 ├── src/
 │   ├── main.rs                 # 入口文件
-│   ├── models.rs               # 数据模型
-│   ├── handlers/               # 路由处理器
-│   │   ├── mod.rs
-│   │   ├── chat.rs             # 聊天接口
-│   │   ├── stt.rs              # 语音转文字
-│   │   └── health.rs           # 健康检查
-│   ├── services/               # 业务服务
-│   │   ├── mod.rs
-│   │   ├── llm.rs              # LLM 服务
-│   │   ├── tts.rs              # TTS 服务
-│   │   ├── stt.rs              # STT 服务
-│   │   └── role.rs             # 角色服务
 │   ├── config.rs               # 配置管理
 │   ├── error.rs                # 错误处理
-│   └── utils.rs                # 工具函数
-├── audio/                      # 音频文件存储
-├── .env                        # 环境变量
-├── Cargo.toml
-└── Cargo.lock
+│   ├── models.rs               # 前后端 WebSocket 消息模型
+│   ├── handlers/
+│   │   ├── mod.rs
+│   │   ├── health.rs           # 健康检查
+│   │   └── websocket.rs        # WebSocket 网关核心逻辑
+│   └── services/
+│       ├── mod.rs
+│       └── realtime_api.rs     # 封装与第三方实时语音服务的交互
+├── .env
+└── Cargo.toml
 ```
 
-### 6.2 主文件实现
+### 6.2 主文件实现 (main.rs)
+
+`main.rs` 的职责是初始化配置、设置路由（包含 WebSocket 升级路由），并启动服务。
 
 ```rust
 // src/main.rs
 
 use axum::{
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use std::sync::Arc;
-use tower_http::{
-  cors::{Any, CorsLayer},
-  services::{ServeDir, ServeFile},
-  trace::TraceLayer,
-};
+use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
@@ -988,70 +887,35 @@ mod error;
 mod handlers;
 mod models;
 mod services;
-mod utils;
 
 use config::Config;
-use services::{LLMService, STTService, TTSService};
 
 #[derive(Clone)]
 pub struct AppState {
-    llm_service: Arc<LLMService>,
-    tts_service: Arc<TTSService>,
-    stt_service: Arc<STTService>,
+    pub config: Arc<Config>,
 }
 
 #[tokio::main]
 async fn main() {
-    // 初始化日志
+    // 初始化日志和配置
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "backend=debug,tower_http=debug".into()),
-        )
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "backend=debug,tower_http=debug".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
     
-    // 加载配置
     dotenvy::dotenv().ok();
-    let config = Config::from_env();
+    let config = Arc::new(Config::from_env());
     
-    // 创建服务
-    let llm_service = Arc::new(LLMService::new(&config.openai_api_key));
-    let tts_service = Arc::new(TTSService::new(&config.openai_api_key));
-    let stt_service = Arc::new(STTService::new(&config.openai_api_key));
-    
-    let state = AppState {
-        llm_service,
-        tts_service,
-        stt_service,
-    };
-    
-    // 配置 CORS
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-    
+    let state = AppState { config };
+
     // 静态文件服务 (如果存在)
-    let static_dir = std::path::Path::new("/app/static");
-    let static_service = if static_dir.exists() {
-        tracing::info!("Enabling static file service from /app/static");
-        Some(
-            ServeDir::new(static_dir)
-                .not_found_service(ServeFile::new("/app/static/index.html")),
-        )
-    } else {
-        tracing::warn!("Static directory /app/static not found, static files will not be served");
-        None
-    };
+    let static_service = // ... (省略，与之前相同)
 
     // 创建路由
     let mut app = Router::new()
-        .route("/api/chat", post(handlers::chat::chat_handler))
-        .route("/api/speech-to-text", post(handlers::stt::stt_handler))
+        .route("/api/chat", get(handlers::websocket::websocket_handler)) // WebSocket 路由
         .route("/health", get(handlers::health::health_handler))
-        .nest_service("/audio", ServeDir::new("audio"))
-        .layer(cors)
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -1060,325 +924,127 @@ async fn main() {
     }
     
     // 启动服务器
-    let addr = format!("{}:{}", config.host, config.port);
+    let addr = format!("{}:{}", "0.0.0.0", 3000);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    
     tracing::info!("Server running on http://{}", addr);
-    
     axum::serve(listener, app).await.unwrap();
 }
 ```
 
-### 6.3 LLM Service
+### 6.3 WebSocket 网关处理器
+
+这是新架构的核心。它处理来自客户端的 WebSocket 连接，并作为代理与第三方实时语音服务进行双向通信。
 
 ```rust
-// src/services/llm.rs
-
-use anyhow::Result;
-use reqwest::Client;
-use serde_json::json;
-use crate::models::ChatMessage;
-
-pub struct LLMService {
-    api_key: String,
-    client: Client,
-}
-
-impl LLMService {
-    pub fn new(api_key: &str) -> Self {
-        Self {
-            api_key: api_key.to_string(),
-            client: Client::new(),
-        }
-    }
-    
-    pub async fn generate_response(
-        &self,
-        user_message: &str,
-        history: &[ChatMessage],
-        system_prompt: &str,
-    ) -> Result<String> {
-        let mut messages = vec![
-            json!({
-                "role": "system",
-                "content": system_prompt
-            })
-        ];
-        
-        // 添加历史消息（最多 10 条）
-        for msg in history.iter().rev().take(10).rev() {
-            messages.push(json!({
-                "role": msg.role,
-                "content": msg.content
-            }));
-        }
-        
-        // 添加当前用户消息
-        messages.push(json!({
-            "role": "user",
-            "content": user_message
-        }));
-        
-        let response = self.client
-            .post("https://api.openai.com/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&json!({
-                "model": "gpt-3.5-turbo",
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 500,
-            }))
-            .send()
-            .await?;
-        
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            anyhow::bail!("OpenAI API error: {}", error_text);
-        }
-        
-        let json: serde_json::Value = response.json().await?;
-        
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid response format"))?;
-        
-        Ok(content.to_string())
-    }
-}
-```
-
-### 6.4 TTS Service
-
-```rust
-// src/services/tts.rs
-
-use anyhow::Result;
-use reqwest::Client;
-use std::path::PathBuf;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
-
-pub struct TTSService {
-    api_key: String,
-    client: Client,
-}
-
-impl TTSService {
-    pub fn new(api_key: &str) -> Self {
-        Self {
-            api_key: api_key.to_string(),
-            client: Client::new(),
-        }
-    }
-    
-    pub async fn generate_speech(
-        &self,
-        text: &str,
-        language: &str,
-    ) -> Result<String> {
-        // 根据语言选择声音
-        let voice = match language {
-            "zh" => "nova",  // 中文使用 nova
-            _ => "alloy",    // 英文使用 alloy
-        };
-        
-        let response = self.client
-            .post("https://api.openai.com/v1/audio/speech")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&serde_json::json!({
-                "model": "tts-1",
-                "input": text,
-                "voice": voice,
-            }))
-            .send()
-            .await?;
-        
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            anyhow::bail!("TTS API error: {}", error_text);
-        }
-        
-        // 生成文件名
-        let filename = format!("{}.mp3", Uuid::new_v4());
-        let filepath = PathBuf::from("audio").join(&filename);
-        
-        // 确保目录存在
-        tokio::fs::create_dir_all("audio").await?;
-        
-        // 保存音频文件
-        let bytes = response.bytes().await?;
-        let mut file = File::create(&filepath).await?;
-        file.write_all(&bytes).await?;
-        
-        Ok(filename)
-    }
-}
-```
-
-### 6.5 STT Service
-
-```rust
-// src/services/stt.rs
-
-use anyhow::Result;
-use reqwest::{Client, multipart};
-
-pub struct STTService {
-    api_key: String,
-    client: Client,
-}
-
-impl STTService {
-    pub fn new(api_key: &str) -> Self {
-        Self {
-            api_key: api_key.to_string(),
-            client: Client::new(),
-        }
-    }
-    
-    pub async fn transcribe(&self, audio_data: Vec<u8>) -> Result<String> {
-        let part = multipart::Part::bytes(audio_data)
-            .file_name("audio.webm")
-            .mime_str("audio/webm")?;
-        
-        let form = multipart::Form::new()
-            .part("file", part)
-            .text("model", "whisper-1");
-        
-        let response = self.client
-            .post("https://api.openai.com/v1/audio/transcriptions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await?;
-        
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            anyhow::bail!("Whisper API error: {}", error_text);
-        }
-        
-        let json: serde_json::Value = response.json().await?;
-        
-        let text = json["text"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid response format"))?;
-        
-        Ok(text.to_string())
-    }
-}
-```
-
-### 6.6 Chat Handler
-
-```rust
-// src/handlers/chat.rs
+// src/handlers/websocket.rs
 
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
+    extract::{ws::{Message, WebSocket}, State, WebSocketUpgrade},
+    response::IntoResponse,
 };
-use std::sync::Arc;
-use crate::{
-    models::{ChatRequest, ChatResponse},
-    services::role::get_role_system_prompt,
-    AppState,
-};
+use futures::{sink::SinkExt, stream::StreamExt};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{connect_async, tungstenite, MaybeTlsStream, WebSocketStream};
 
-pub async fn chat_handler(
+use crate::{AppState, services::realtime_api};
+
+// 当客户端连接时，此函数被调用
+pub async fn websocket_handler(
+    ws: WebSocketUpgrade,
     State(state): State<AppState>,
-    Json(payload): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, AppError> {
-    tracing::info!("Chat request: role_id={}, language={}", 
-        payload.role_id, payload.language);
-    
-    // 获取角色的系统提示词
-    let system_prompt = get_role_system_prompt(&payload.role_id);
-    
-    // 生成 AI 回复
-    let message = state.llm_service
-        .generate_response(&payload.message, &payload.history, &system_prompt)
-        .await?;
-    
-    // 如果需要生成音频
-    let audio_url = if payload.enable_audio {
-        let filename = state.tts_service
-            .generate_speech(&message, &payload.language)
-            .await?;
-        Some(format!("/audio/{}", filename))
-    } else {
-        None
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+// 核心代理逻辑
+async fn handle_socket(client_socket: WebSocket, state: AppState) {
+    // 1. 连接到后端的豆包实时语音服务
+    let upstream_url = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue";
+    let (upstream_socket, _response) = match connect_async(upstream_url).await {
+        Ok(connection) => connection,
+        Err(e) => {
+            tracing::error!("Failed to connect to upstream service: {}", e);
+            return;
+        }
     };
-    
-    Ok(Json(ChatResponse {
-        message,
-        audio_url,
-    }))
-}
 
-// 错误处理
-pub struct AppError(anyhow::Error);
+    let (mut client_sender, mut client_receiver) = client_socket.split();
+    let (mut upstream_sender, mut upstream_receiver) = upstream_socket.split();
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        tracing::error!("Handler error: {:?}", self.0);
-        
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "InternalError",
-                "message": self.0.to_string()
-            }))
-        ).into_response()
-    }
-}
+    // 2. 创建两个任务，实现双向数据转发
 
-impl<E> From<E> for AppError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(err: E) -> Self {
-        Self(err.into())
-    }
+    // 任务1: 从客户端接收消息，转发到上游服务
+    let client_to_upstream = async move {
+        while let Some(Ok(msg)) = client_receiver.next().await {
+            // 在这里可以对消息进行转换或检查
+            // 例如，从自定义的 ClientMessage 枚举转换为第三方API要求的格式
+            if upstream_sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    // 任务2: 从上游服务接收消息，转发到客户端
+    let upstream_to_client = async move {
+        while let Some(Ok(msg)) = upstream_receiver.next().await {
+            // 在这里可以对消息进行转换或解析
+            // 例如，将第三方API的事件转换为 ServerMessage 枚举格式
+            if client_sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    // 3. 同时运行两个任务
+    tokio::join!(client_to_upstream, upstream_to_client);
+
+    tracing::info!("WebSocket connection closed.");
 }
 ```
 
-### 6.7 Role Service
+### 6.4 第三方服务封装
+
+为了更好地管理与豆包 API 的交互细节（如鉴权、心跳、特定事件的构建），我们将这些逻辑封装在 `realtime_api` 服务中。
 
 ```rust
-// src/services/role.rs
+// src/services/realtime_api.rs
 
-pub fn get_role_system_prompt(role_id: &str) -> String {
-    match role_id {
-        "general" => {
-            "You are Jordan, a friendly and helpful AI assistant. \
-             You can communicate in multiple languages fluently. \
-             Be warm, patient, and adapt to the user's needs."
+use anyhow::Result;
+use tokio_tungstenite::tungstenite::Message;
+
+/// 构建 StartSession 事件
+pub fn build_start_session_message(session_id: &str, role_id: &str) -> Result<Message> {
+    // 根据文档，构建包含角色、模型等信息的 JSON payload
+    let payload = serde_json::json!({
+        "asr": { /* ... */ },
+        "dialog": {
+            "dialog_id": session_id,
+            "bot_name": "豆包", // 或根据 role_id 动态设置
+            // ... 其他根据文档和 role_id 设置的参数
+        },
+        "extra": {
+            "model": "O" // 或 "SC"
         }
-        "teacher" => {
-            "You are a professional language teacher. \
-             Correct grammar and pronunciation gently, provide explanations, \
-             and encourage learners. Give positive feedback."
-        }
-        "business" => {
-            "You are a business consultant. Use professional, formal language. \
-             Simulate business meetings, interviews, negotiations. \
-             Be concise and efficient."
-        }
-        "friend" => {
-            "You are a friendly chat partner. Be casual, humorous, and relaxed. \
-             Use everyday language and make the conversation fun and engaging."
-        }
-        "travel" => {
-            "You are an enthusiastic travel guide. Share practical travel tips, \
-             cultural insights, and useful phrases. Be energetic and helpful."
-        }
-        _ => {
-            "You are a helpful AI assistant."
-        }
-    }.to_string()
+    });
+
+    // 根据文档的二进制协议，将 JSON 封装成一个 WebSocket Message
+    // 此处为伪代码，实际需要操作字节来构建 header 和 payload
+    let binary_frame = assemble_binary_frame(100, session_id, &payload.to_string())?;
+    Ok(Message::Binary(binary_frame))
+}
+
+/// 解析从上游收到的消息
+pub fn parse_upstream_message(msg: Message) {
+    // 根据文档的二进制协议解析 header 和 payload
+    // 将解析出的事件和数据转换为后端的 ServerMessage 枚举
+    // ...
+}
+
+// ... 其他辅助函数
+fn assemble_binary_frame(event_id: u32, session_id: &str, payload: &str) -> Result<Vec<u8>> {
+    // 实现文档中描述的二进制帧封装逻辑
+    // ...
+    Ok(vec![])
 }
 ```
 

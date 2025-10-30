@@ -29,17 +29,8 @@ export function InputArea() {
       if (!content) {
         return;
       }
-      const newConversationId = createConversation(draftRoleId, draftSettings);
-      conversation =
-        useAppStore
-          .getState()
-          .conversations.find((item) => item.id === newConversationId) ?? null;
+      conversation = ensureConversation();
       if (!conversation) {
-        toast({
-          title: "创建会话失败",
-          description: "请稍后再试",
-          variant: "destructive",
-        });
         return;
       }
     }
@@ -72,7 +63,7 @@ export function InputArea() {
       const assistantMessage = {
         id: uuidv4(),
         role: "assistant" as const,
-        content: response.message,
+        content: response.message ?? "",
         audioUrl: response.audio_url,
         timestamp: new Date(),
       };
@@ -90,17 +81,63 @@ export function InputArea() {
     }
   };
 
-  const handleTranscribed = (text: string) => {
-    setValue((prev) => (prev ? `${prev} ${text}` : text));
+  const ensureConversation = () => {
+    let conversation = getActiveConversation();
+    if (!conversation) {
+      const newConversationId = createConversation(draftRoleId, draftSettings);
+      conversation =
+        useAppStore
+          .getState()
+          .conversations.find((item) => item.id === newConversationId) ?? null;
+      if (!conversation) {
+        toast({
+          title: "创建会话失败",
+          description: "请稍后再试",
+          variant: "destructive",
+        });
+        return null;
+      }
+    }
+    return conversation;
+  };
+
+  const handleVoiceReply = async (
+    inputLabel: string,
+    response: Awaited<ReturnType<typeof api.speechToSpeech>>,
+    localAudioUrl?: string
+  ) => {
+    const conversation = ensureConversation();
+    if (!conversation) {
+      return;
+    }
+
+    const voiceMessage = {
+      id: uuidv4(),
+      role: "user" as const,
+      content: inputLabel,
+      audioUrl: localAudioUrl,
+      timestamp: new Date(),
+    };
+
+    addMessage(conversation.id, voiceMessage);
+
+    if (response.audio_url) {
+      const assistantMessage = {
+        id: uuidv4(),
+        role: "assistant" as const,
+        content: response.message ?? "",
+        audioUrl: response.audio_url,
+        timestamp: new Date(),
+      };
+
+      addMessage(conversation.id, assistantMessage);
+    }
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="border-t border-border bg-card px-6 py-4"
-    >
+    <form onSubmit={handleSubmit} className="border-t border-border bg-card px-6 py-4">
       <div className="flex items-end gap-3">
-        <VoiceButton onTranscribed={handleTranscribed} />
+        <VoiceButton onVoiceReply={handleVoiceReply} />
         <TextInput value={value} onChange={setValue} onSubmit={handleSubmit} />
         <SendButton disabled={!value.trim()} onClick={() => handleSubmit()} />
       </div>

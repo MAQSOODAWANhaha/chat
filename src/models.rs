@@ -7,6 +7,7 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+#[allow(dead_code)]
 /// 聊天请求
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
@@ -17,18 +18,13 @@ pub struct ChatRequest {
     pub enable_audio: bool,        // 是否生成音频
 }
 
-/// 聊天响应
+/// 音频响应
 #[derive(Debug, Serialize)]
 pub struct ChatResponse {
-    pub message: String, // AI 回复文字
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_url: Option<String>, // 音频 URL（可选）
-}
-
-/// 语音转文字响应
-#[derive(Debug, Serialize)]
-pub struct STTResponse {
-    pub text: String,
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_url: Option<String>,
 }
 
 /// 错误响应

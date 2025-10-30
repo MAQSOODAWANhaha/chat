@@ -5,13 +5,12 @@ use axum::{
 };
 use bytes::BufMut;
 
-use crate::{AppState, error::AppError, models::STTResponse};
+use crate::{AppState, error::AppError, models::ChatResponse, services::realtime::SpeechSession};
 
-/// 处理语音转文字请求
 pub async fn stt_handler(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> Result<Json<STTResponse>, AppError> {
+) -> Result<Json<ChatResponse>, AppError> {
     let mut audio_bytes: Option<Vec<u8>> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(AnyhowError::from)? {
@@ -28,7 +27,11 @@ pub async fn stt_handler(
 
     let audio_bytes = audio_bytes.ok_or_else(|| anyhow!("No audio file provided"))?;
 
-    let text = state.stt_service.transcribe(audio_bytes).await?;
+    let mut session = state.realtime_client.start_session().await?;
+    let result = session.send_audio(&audio_bytes).await?;
 
-    Ok(Json(STTResponse { text }))
+    Ok(Json(ChatResponse {
+        message: None,
+        audio_url: Some(format!("/audio/{}", result.audio_url)),
+    }))
 }

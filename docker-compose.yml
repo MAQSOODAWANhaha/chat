@@ -1,13 +1,19 @@
 services:
   app:
+    image: gghtrt520/chat:latest
     container_name: chat
-    build:
-      context: .
-      dockerfile: Dockerfile
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - HOST=0.0.0.0
       - PORT=3000
+      - GEEKAI_APP_ID=${GEEKAI_APP_ID}
+      - GEEKAI_ACCESS_KEY=${GEEKAI_ACCESS_KEY}
+      - GEEKAI_RESOURCE_ID=${GEEKAI_RESOURCE_ID}
+      - GEEKAI_APP_KEY=${GEEKAI_APP_KEY}
+      - GEEKAI_DEFAULT_SPEAKER=${GEEKAI_DEFAULT_SPEAKER}
+      - GEEKAI_MODEL=${GEEKAI_MODEL}
+      - GEEKAI_AUDIO_CHANNEL=${GEEKAI_AUDIO_CHANNEL}
+      - GEEKAI_AUDIO_FORMAT=${GEEKAI_AUDIO_FORMAT}
+      - GEEKAI_AUDIO_SAMPLE_RATE=${GEEKAI_AUDIO_SAMPLE_RATE}
     volumes:
       - ./audio:/app/audio
     expose:

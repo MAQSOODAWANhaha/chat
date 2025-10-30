@@ -14,10 +14,6 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
-  message: string;
+  message?: string;
   audio_url?: string;
-}
-
-export interface STTResponse {
-  text: string;
 }

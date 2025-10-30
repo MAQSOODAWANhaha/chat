@@ -19,13 +19,11 @@ mod services;
 mod utils;
 
 use config::Config;
-use services::{LLMService, STTService, TTSService};
+use services::{RealtimeClient, RealtimeConfig};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub llm_service: Arc<LLMService>,
-    pub tts_service: Arc<TTSService>,
-    pub stt_service: Arc<STTService>,
+    pub realtime_client: Arc<RealtimeClient>,
 }
 
 #[tokio::main]
@@ -41,15 +39,10 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let config = Config::from_env();
 
-    let llm_service = Arc::new(LLMService::new(&config.openai_api_key));
-    let tts_service = Arc::new(TTSService::new(&config.openai_api_key));
-    let stt_service = Arc::new(STTService::new(&config.openai_api_key));
+    let realtime_cfg = RealtimeConfig::from(&config);
+    let realtime_client = Arc::new(RealtimeClient::new(realtime_cfg));
 
-    let state = AppState {
-        llm_service,
-        tts_service,
-        stt_service,
-    };
+    let state = AppState { realtime_client };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

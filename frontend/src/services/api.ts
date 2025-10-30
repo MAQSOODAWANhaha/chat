@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { ChatRequest, ChatResponse, STTResponse } from "@/types/api";
+import { ChatRequest, ChatResponse } from "@/types/api";
 
 class ApiService {
   private client: AxiosInstance;
@@ -20,8 +20,8 @@ class ApiService {
     return response.data;
   }
 
-  async speechToText(formData: FormData): Promise<STTResponse> {
-    const response = await this.client.post<STTResponse>(
+  async speechToSpeech(formData: FormData): Promise<ChatResponse> {
+    const response = await this.client.post<ChatResponse>(
       "/api/speech-to-text",
       formData,
       {

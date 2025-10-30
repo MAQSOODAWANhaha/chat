@@ -11,12 +11,13 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/services/api";
 import { useAppStore } from "@/store/useAppStore";
+import { ChatResponse } from "@/types/api";
 
 interface VoiceButtonProps {
-  onTranscribed: (text: string) => void;
+  onVoiceReply: (inputLabel: string, response: ChatResponse, localAudioUrl?: string) => void;
 }
 
-export function VoiceButton({ onTranscribed }: VoiceButtonProps) {
+export function VoiceButton({ onVoiceReply }: VoiceButtonProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
@@ -74,13 +75,14 @@ export function VoiceButton({ onTranscribed }: VoiceButtonProps) {
         formData.append("audio", audioBlob, "recording.webm");
 
         try {
-          const response = await api.speechToText(formData);
-          onTranscribed(response.text);
+          const response = await api.speechToSpeech(formData);
+          const localUrl = URL.createObjectURL(audioBlob);
+          onVoiceReply("语音输入", response, localUrl);
         } catch (error) {
           console.error(error);
           toast({
-            title: "识别失败",
-            description: "语音识别服务暂不可用",
+            title: "语音对话失败",
+            description: "请检查网络或稍后再试",
             variant: "destructive",
           });
         }
