@@ -133,14 +133,14 @@ export function useZhipuRealtime(options: UseZhipuRealtimeOptions = {}) {
           title: '连接成功',
           description: '智谱AI已连接',
         })
-        // 连接成功后手动创建会话
-        setTimeout(() => {
-          try {
-            service.createSessionManually()
-          } catch (error) {
-            console.error('创建会话失败:', error)
-          }
-        }, 500)
+        // 连接成功后不再自动创建会話，等待用户手动触发
+        // setTimeout(() => {
+        //   try {
+        //     service.createSessionManually()
+        //   } catch (error) {
+        //     console.error('创建会话失败:', error)
+        //   }
+        // }, 500)
       }
     })
   }, [addMessage, setAiResponseStatus, toast])
