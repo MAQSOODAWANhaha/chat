@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, convert::TryInto, path::PathBuf, time::Duration};
+use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -15,24 +15,6 @@ use uuid::Uuid;
 use crate::config::Config;
 
 const REALTIME_URL: &str = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue";
-
-const PROTOCOL_VERSION: u8 = 0b0001;
-const HEADER_SIZE_WORDS: u8 = 0b0001; // 4 bytes
-const MESSAGE_TYPE_FULL_CLIENT: u8 = 0b0001;
-const MESSAGE_TYPE_AUDIO_ONLY: u8 = 0b0010;
-const MESSAGE_TYPE_AUDIO_RESPONSE: u8 = 0b1011;
-const MESSAGE_TYPE_ERROR: u8 = 0b1111;
-
-const FLAG_EVENT: u8 = 0b0100;
-
-const SERIALIZATION_JSON: u8 = 0b0001;
-const SERIALIZATION_RAW: u8 = 0b0000;
-const COMPRESSION_NONE: u8 = 0b0000;
-
-const EVENT_START_CONNECTION: u32 = 1;
-const EVENT_FINISH_SESSION: u32 = 102;
-const EVENT_TEXT_QUERY: u32 = 501;
-const EVENT_AUDIO_CHUNK: u32 = 200;
 
 #[derive(Clone, Debug)]
 pub struct RealtimeConfig {
@@ -100,6 +82,7 @@ pub struct RealtimeSession {
     stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
     cfg: RealtimeConfig,
     session_id: Option<String>,
+    sequence: i32,
 }
 
 impl RealtimeSession {
@@ -111,6 +94,7 @@ impl RealtimeSession {
             stream,
             cfg,
             session_id: None,
+            sequence: 1,
         }
     }
 
@@ -119,10 +103,43 @@ impl RealtimeSession {
         Ok(())
     }
 
+    async fn read_message(&mut self) -> Result<DecodedMessage> {
+        while let Some(msg) = self.stream.next().await {
+            let msg = msg?;
+            match msg {
+                Message::Binary(data) => {
+                    if let Some(decoded) = decode_message(&data)? {
+                        return Ok(decoded);
+                    }
+                }
+                Message::Text(text) => {
+                    tracing::debug!("text frame: {}", text);
+                }
+                Message::Close(_) => return Err(anyhow!("connection closed")),
+                Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
+            }
+        }
+        Err(anyhow!("connection closed"))
+    }
+
     async fn init_session(&mut self, input_mode: &str) -> Result<()> {
         // StartConnection
-        let frame = encode_text_frame(EVENT_START_CONNECTION, None, Some("{}"))?;
+        let frame = encode_message(
+            MessageType::FullClient,
+            MsgFlag::with_event(MsgFlag::last_no_seq()),
+            Some(Event::StartConnection),
+            None,
+            None,
+            &[],
+        )?;
         self.send_frame(frame).await?;
+
+        loop {
+            let msg = self.read_message().await?;
+            if matches!(msg.event, Some(Event::ConnectionStarted)) {
+                break;
+            }
+        }
 
         // StartSession
         let session_id = Uuid::new_v4().to_string();
@@ -144,66 +161,65 @@ impl RealtimeSession {
                 }
             }
         });
+        let payload_bytes = payload.to_string().into_bytes();
 
-        let payload_str = payload.to_string();
-        let frame = encode_text_frame(100, Some(&session_id), Some(&payload_str))?;
+        let frame = encode_message(
+            MessageType::FullClient,
+            MsgFlag::with_event(MsgFlag::last_no_seq()),
+            Some(Event::StartSession),
+            Some(&session_id),
+            None,
+            &payload_bytes,
+        )?;
         self.send_frame(frame).await?;
+
+        loop {
+            let msg = self.read_message().await?;
+            if matches!(msg.event, Some(Event::SessionStarted)) {
+                break;
+            }
+        }
         Ok(())
     }
 
     async fn finalize_session(&mut self) -> Result<()> {
-        let frame =
-            encode_text_frame(EVENT_FINISH_SESSION, self.session_id.as_deref(), Some("{}"))?;
-        self.send_frame(frame).await
+        let session_id = self.session_id.clone().unwrap_or_default();
+        let frame = encode_message(
+            MessageType::FullClient,
+            MsgFlag::with_event(MsgFlag::last_no_seq()),
+            Some(Event::FinishSession),
+            Some(&session_id),
+            None,
+            b"{}",
+        )?;
+        self.send_frame(frame).await?;
+        Ok(())
     }
 
     async fn receive_audio(&mut self) -> Result<Vec<u8>> {
-        let mut audio_chunks: VecDeque<Bytes> = VecDeque::new();
+        let mut audio_chunks = VecDeque::new();
 
-        while let Some(msg) = self.stream.next().await {
-            let msg = msg?;
-            match msg {
-                Message::Binary(data) => {
-                    if let Some(frame) = decode_binary_frame(&data)? {
-                        match frame.message_type {
-                            MESSAGE_TYPE_AUDIO_RESPONSE => {
-                                if let Some(event) = frame.event_id {
-                                    if event == 352 {
-                                        audio_chunks.push_back(Bytes::from(frame.payload));
-                                    } else if event == 359 {
-                                        break;
-                                    }
-                                }
-                            }
-                            MESSAGE_TYPE_ERROR => {
-                                return Err(anyhow!("Realtime service error"));
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        audio_chunks.push_back(Bytes::from(data));
-                    }
+        loop {
+            let msg = self.read_message().await?;
+            match msg.event {
+                Some(Event::TTSSentenceEnd) => continue,
+                Some(Event::TTSEnded) => break,
+                Some(Event::SessionFailed) => {
+                    let err = msg
+                        .payload
+                        .as_ref()
+                        .map(|p| String::from_utf8_lossy(p).to_string())
+                        .unwrap_or_else(|| "session failed".into());
+                    return Err(anyhow!(err));
                 }
-                Message::Text(text) => {
-                    let json: serde_json::Value = serde_json::from_str(&text)?;
-                    if let Some(event_id) = json.get("event_id").and_then(|v| v.as_u64()) {
-                        match event_id {
-                            359 => break,
-                            153 => {
-                                let msg = json
-                                    .get("payload")
-                                    .and_then(|p| p.get("error"))
-                                    .and_then(|s| s.as_str())
-                                    .unwrap_or("session failed")
-                                    .to_string();
-                                return Err(anyhow!(msg));
-                            }
-                            _ => {}
+                None => {
+                    if matches!(msg.message_type, MessageType::AudioOnlyServer) {
+                        if let Some(payload) = msg.payload {
+                            audio_chunks.push_back(Bytes::from(payload));
                         }
                     }
                 }
-                Message::Close(_) => break,
-                Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
+                _ => {}
             }
         }
 
@@ -216,33 +232,52 @@ impl RealtimeSession {
 
     async fn synthesize_text(&mut self, text: &str) -> Result<Vec<u8>> {
         self.init_session("text").await?;
-
-        let payload = serde_json::json!({ "content": text });
-        let payload_str = payload.to_string();
-        let frame = encode_text_frame(
-            EVENT_TEXT_QUERY,
-            self.session_id.as_deref(),
-            Some(&payload_str),
+        let session_id = self
+            .session_id
+            .clone()
+            .ok_or_else(|| anyhow!("session id missing"))?;
+        let payload = serde_json::json!({ "content": text })
+            .to_string()
+            .into_bytes();
+        let frame = encode_message(
+            MessageType::FullClient,
+            MsgFlag::with_event(MsgFlag::positive_seq(self.sequence)),
+            Some(Event::ChatTextQuery),
+            Some(&session_id),
+            None,
+            &payload,
         )?;
+        self.sequence += 1;
         self.send_frame(frame).await?;
 
+        self.finalize_session().await?;
         self.receive_audio().await
     }
 
     async fn synthesize_audio(&mut self, pcm_data: &[u8]) -> Result<Vec<u8>> {
         self.init_session("audio_file").await?;
-
+        let session_id = self
+            .session_id
+            .clone()
+            .ok_or_else(|| anyhow!("session id missing"))?;
         let mut interval = IntervalStream::new(time::interval(Duration::from_millis(20)));
-        let mut offset = 0;
-        let chunk_size = 640;
+        let mut offset = 0usize;
+        let frame_samples = 640usize;
 
         while offset < pcm_data.len() {
-            let end = (offset + chunk_size).min(pcm_data.len());
+            let end = (offset + frame_samples).min(pcm_data.len());
             let chunk = &pcm_data[offset..end];
-            offset = end;
-
-            let frame = encode_audio_frame(EVENT_AUDIO_CHUNK, self.session_id.as_deref(), chunk)?;
+            let frame = encode_message(
+                MessageType::AudioOnlyClient,
+                MsgFlag::with_event(MsgFlag::positive_seq(self.sequence)),
+                Some(Event::TaskRequest),
+                Some(&session_id),
+                None,
+                chunk,
+            )?;
+            self.sequence += 1;
             self.send_frame(frame).await?;
+            offset = end;
             interval.next().await;
         }
 
@@ -287,127 +322,219 @@ async fn persist_audio(bytes: &[u8], extension: &str) -> Result<String> {
     Ok(filename)
 }
 
-fn encode_text_frame(
-    event_id: u32,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MessageType {
+    FullClient,
+    AudioOnlyClient,
+    FullServer,
+    AudioOnlyServer,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MsgFlag(u8);
+
+impl MsgFlag {
+    fn with_event(flag: MsgFlag) -> MsgFlag {
+        MsgFlag(flag.0 | 0b100)
+    }
+
+    fn positive_seq(seq: i32) -> MsgFlag {
+        if seq >= 0 {
+            MsgFlag(0b1)
+        } else {
+            MsgFlag(0b11)
+        }
+    }
+
+    const fn last_no_seq() -> MsgFlag {
+        MsgFlag(0b10)
+    }
+
+    fn bits(self) -> u8 {
+        self.0 & 0x0f
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Event {
+    StartConnection = 1,
+    FinishConnection = 2,
+    StartSession = 100,
+    FinishSession = 102,
+    TaskRequest = 200,
+    SayHello = 300,
+    ChatTTSText = 500,
+    ChatTextQuery = 501,
+    ChatRAGText = 502,
+    ConnectionStarted = 50,
+    ConnectionFinished = 52,
+    SessionStarted = 150,
+    SessionFinished = 152,
+    SessionFailed = 153,
+    Usage = 154,
+    TTSSentenceStart = 350,
+    TTSSentenceEnd = 351,
+    TTSResponse = 352,
+    TTSEnded = 359,
+}
+
+#[derive(Debug)]
+struct DecodedMessage {
+    message_type: MessageType,
+    flags: MsgFlag,
+    event: Option<Event>,
+    session_id: Option<String>,
+    payload: Option<Vec<u8>>,
+}
+
+fn encode_message(
+    message_type: MessageType,
+    flags: MsgFlag,
+    event: Option<Event>,
     session_id: Option<&str>,
-    payload: Option<&str>,
+    connect_id: Option<&str>,
+    payload: &[u8],
 ) -> Result<Vec<u8>> {
-    let payload_bytes = payload.unwrap_or("{}").as_bytes();
-    let mut buf = Vec::with_capacity(16 + payload_bytes.len());
-
-    let header = build_header(
-        MESSAGE_TYPE_FULL_CLIENT,
-        FLAG_EVENT,
-        SERIALIZATION_JSON,
-        COMPRESSION_NONE,
-    );
+    let mut buf = Vec::new();
+    let header = build_header(message_type, flags, payload.len());
     buf.extend_from_slice(&header);
 
-    buf.extend_from_slice(&event_id.to_le_bytes());
-
-    if let Some(id) = session_id {
-        let id_bytes = id.as_bytes();
-        buf.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
-        buf.extend_from_slice(id_bytes);
-    } else {
-        buf.extend_from_slice(&0u32.to_le_bytes());
+    if let Some(event) = event {
+        buf.extend_from_slice(&(event as u32).to_be_bytes());
     }
 
-    buf.extend_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
-    buf.extend_from_slice(payload_bytes);
+    if let Some(session_id) = session_id {
+        let session_bytes = session_id.as_bytes();
+        buf.extend_from_slice(&(session_bytes.len() as u32).to_be_bytes());
+        buf.extend_from_slice(session_bytes);
+    } else {
+        buf.extend_from_slice(&0u32.to_be_bytes());
+    }
 
+    if let Some(connect_id) = connect_id {
+        let connect_bytes = connect_id.as_bytes();
+        buf.extend_from_slice(&(connect_bytes.len() as u32).to_be_bytes());
+        buf.extend_from_slice(connect_bytes);
+    }
+
+    buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    buf.extend_from_slice(payload);
     Ok(buf)
 }
 
-fn encode_audio_frame(event_id: u32, session_id: Option<&str>, chunk: &[u8]) -> Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(16 + chunk.len());
-    let header = build_header(
-        MESSAGE_TYPE_AUDIO_ONLY,
-        FLAG_EVENT,
-        SERIALIZATION_RAW,
-        COMPRESSION_NONE,
-    );
-    buf.extend_from_slice(&header);
-    buf.extend_from_slice(&event_id.to_le_bytes());
+fn build_header(message_type: MessageType, flags: MsgFlag, _payload_size: usize) -> [u8; 4] {
+    let version = 0b0001 << 4; // version 1
+    let header_size = 0b0001; // 4 bytes
+    let type_bits = match message_type {
+        MessageType::FullClient => 0b0001 << 4,
+        MessageType::AudioOnlyClient => 0b0010 << 4,
+        MessageType::FullServer => 0b1001 << 4,
+        MessageType::AudioOnlyServer => 0b1011 << 4,
+        MessageType::Error => 0b1111 << 4,
+    };
+    let serialization = 0b0001 << 4; // JSON
+    let compression = 0b0000; // none
 
-    if let Some(id) = session_id {
-        let id_bytes = id.as_bytes();
-        buf.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
-        buf.extend_from_slice(id_bytes);
-    } else {
-        buf.extend_from_slice(&0u32.to_le_bytes());
-    }
-
-    buf.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
-    buf.extend_from_slice(chunk);
-    Ok(buf)
+    [
+        version | header_size,
+        type_bits | flags.bits(),
+        serialization | compression,
+        0,
+    ]
 }
 
-fn build_header(message_type: u8, flags: u8, serialization: u8, compression: u8) -> [u8; 4] {
-    let b0 = (PROTOCOL_VERSION << 4) | HEADER_SIZE_WORDS;
-    let b1 = (message_type << 4) | (flags & 0x0f);
-    let b2 = (serialization << 4) | (compression & 0x0f);
-    [b0, b1, b2, 0]
-}
-
-struct DecodedFrame {
-    pub message_type: u8,
-    pub event_id: Option<u32>,
-    pub payload: Vec<u8>,
-}
-
-fn decode_binary_frame(data: &[u8]) -> Result<Option<DecodedFrame>> {
+fn decode_message(data: &[u8]) -> Result<Option<DecodedMessage>> {
     if data.len() < 12 {
         return Ok(None);
     }
 
-    let message_type = data[1] >> 4;
-    let flags = data[1] & 0x0f;
-    let mut offset = 4;
+    let version_header = data[0];
+    let _version = version_header >> 4;
+    let header_size_words = version_header & 0x0f;
+    let header_bytes = (header_size_words as usize) * 4;
+    if data.len() < header_bytes {
+        return Ok(None);
+    }
 
-    let mut event_id = None;
-    if flags & FLAG_EVENT != 0 {
+    let message_type_bits = data[1] & 0xf0;
+    let flags = MsgFlag(data[1] & 0x0f);
+
+    let message_type = match message_type_bits >> 4 {
+        0b0001 => MessageType::FullClient,
+        0b0010 => MessageType::AudioOnlyClient,
+        0b1001 => MessageType::FullServer,
+        0b1011 => MessageType::AudioOnlyServer,
+        0b1111 => MessageType::Error,
+        _ => return Ok(None),
+    };
+
+    let mut offset = header_bytes;
+    let mut event = None;
+    if flags.bits() & 0b100 != 0 {
         if data.len() < offset + 4 {
             return Ok(None);
         }
-        let bytes: [u8; 4] = data[offset..offset + 4]
-            .try_into()
-            .map_err(|_| anyhow!("invalid event id"))?;
-        event_id = Some(u32::from_le_bytes(bytes));
+        let event_val = u32::from_be_bytes(data[offset..offset + 4].try_into()?);
+        event = match event_val {
+            1 => Some(Event::StartConnection),
+            2 => Some(Event::FinishConnection),
+            50 => Some(Event::ConnectionStarted),
+            51 => Some(Event::ConnectionFinished),
+            52 => Some(Event::ConnectionFinished),
+            100 => Some(Event::StartSession),
+            102 => Some(Event::FinishSession),
+            150 => Some(Event::SessionStarted),
+            152 => Some(Event::SessionFinished),
+            153 => Some(Event::SessionFailed),
+            154 => Some(Event::Usage),
+            200 => Some(Event::TaskRequest),
+            350 => Some(Event::TTSSentenceStart),
+            351 => Some(Event::TTSSentenceEnd),
+            352 => Some(Event::TTSResponse),
+            359 => Some(Event::TTSEnded),
+            500 => Some(Event::ChatTTSText),
+            501 => Some(Event::ChatTextQuery),
+            502 => Some(Event::ChatRAGText),
+            _ => None,
+        };
         offset += 4;
     }
 
     if data.len() < offset + 4 {
         return Ok(None);
     }
-    let session_len_bytes: [u8; 4] = data[offset..offset + 4]
-        .try_into()
-        .map_err(|_| anyhow!("invalid session length"))?;
-    let session_len = u32::from_le_bytes(session_len_bytes);
+    let session_len = u32::from_be_bytes(data[offset..offset + 4].try_into()?);
     offset += 4;
     if data.len() < offset + session_len as usize {
         return Ok(None);
     }
+    let session_id = if session_len > 0 {
+        Some(String::from_utf8_lossy(&data[offset..offset + session_len as usize]).to_string())
+    } else {
+        None
+    };
     offset += session_len as usize;
 
     if data.len() < offset + 4 {
         return Ok(None);
     }
-    let payload_len_bytes: [u8; 4] = data[offset..offset + 4]
-        .try_into()
-        .map_err(|_| anyhow!("invalid payload length"))?;
-    let payload_len = u32::from_le_bytes(payload_len_bytes);
+    let payload_len = u32::from_be_bytes(data[offset..offset + 4].try_into()?);
     offset += 4;
-
     if data.len() < offset + payload_len as usize {
         return Ok(None);
     }
+    let payload = if payload_len > 0 {
+        Some(data[offset..offset + payload_len as usize].to_vec())
+    } else {
+        None
+    };
 
-    let payload = data[offset..offset + payload_len as usize].to_vec();
-
-    Ok(Some(DecodedFrame {
+    Ok(Some(DecodedMessage {
         message_type,
-        event_id,
+        flags,
+        event,
+        session_id,
         payload,
     }))
 }

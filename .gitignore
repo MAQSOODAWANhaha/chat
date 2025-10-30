@@ -4,3 +4,4 @@
 /frontend/.vite
 /frontend/package-lock.json
 /frontend/tsconfig.app.tsbuildinfo
+realtime_dialog/*
