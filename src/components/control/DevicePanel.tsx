@@ -21,13 +21,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useAppStore } from '@/stores/useAppStore'
 import { useCallStore } from '@/stores/useCallStore'
 import { cn } from '@/lib/utils'
-
-interface Device {
-  deviceId: string
-  kind: MediaDeviceKind
-  label: string
-  groupId?: string
-}
+import { MediaDeviceInfo } from '@/types'
 
 interface DevicePanelProps {
   className?: string
@@ -46,7 +40,7 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
 
   const { toast } = useToast()
 
-  const [devices, setDevices] = useState<Device[]>([])
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [testingDevice, setTestingDevice] = useState<string | null>(null)
 
@@ -95,13 +89,14 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
   }
 
   // 测试设备
-  const handleTestDevice = async (deviceId: string, kind: MediaDeviceKind) => {
-    setTestingDevice(deviceId)
+  const handleTestDevice = async (device: MediaDeviceInfo) => {
+    if (!device) return;
+    setTestingDevice(device.deviceId)
     try {
-      await testDevice(deviceId, kind)
+      await testDevice(device)
       toast({
         title: '测试成功',
-        description: `${kind === 'audioinput' ? '麦克风' : kind === 'audiooutput' ? '扬声器' : '摄像头'}工作正常`,
+        description: `${getDeviceTypeName(device.kind)}工作正常`,
       })
     } catch (error) {
       console.error('设备测试失败:', error)
@@ -117,8 +112,11 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
 
   // 设置默认设备
   const handleSetDefaultDevice = (deviceId: string, kind: MediaDeviceKind) => {
+    const device = devices.find(d => d.deviceId === deviceId)
+    if (!device) return;
+
     if (kind === 'audioinput') {
-      setAudioDevice(deviceId)
+      setAudioDevice(device)
       updateSettings({
         audio: { ...settings.audio, inputDevice: deviceId }
       })
@@ -127,9 +125,9 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
         audio: { ...settings.audio, outputDevice: deviceId }
       })
     } else if (kind === 'videoinput') {
-      setVideoDevice(deviceId)
+      setVideoDevice(device)
       updateSettings({
-        video: { ...settings.video, device: deviceId }
+        video: { ...settings.video, inputDevice: deviceId }
       })
     }
 
@@ -187,9 +185,10 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
     }
   }, [])
 
-  const renderDeviceList = (deviceList: Device[], kind: MediaDeviceKind, currentDevice?: string) => {
+  const renderDeviceList = (deviceList: MediaDeviceInfo[], kind: MediaDeviceKind, currentDeviceId?: string) => {
     const Icon = getDeviceIcon(kind)
     const typeName = getDeviceTypeName(kind)
+    const currentDevice = deviceList.find(d => d.deviceId === currentDeviceId)
 
     return (
       <div className="space-y-3">
@@ -201,10 +200,10 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleTestDevice(currentDevice || '', kind)}
+            onClick={() => currentDevice && handleTestDevice(currentDevice)}
             disabled={!currentDevice || testingDevice !== null}
           >
-            {testingDevice === currentDevice ? (
+            {testingDevice === currentDeviceId ? (
               <RefreshCw className="h-4 w-4 animate-spin" />
             ) : (
               '测试'
@@ -224,7 +223,7 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
                 key={device.deviceId}
                 className={cn(
                   "flex items-center justify-between p-3 rounded-lg border",
-                  currentDevice === device.deviceId && "bg-primary/10 border-primary"
+                  currentDeviceId === device.deviceId && "bg-primary/10 border-primary"
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -238,17 +237,17 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {currentDevice === device.deviceId && (
+                  {currentDeviceId === device.deviceId && (
                     <Badge variant="default" className="text-xs">
                       当前使用
                     </Badge>
                   )}
                   <Button
-                    variant={currentDevice === device.deviceId ? "secondary" : "outline"}
+                    variant={currentDeviceId === device.deviceId ? "secondary" : "outline"}
                     size="sm"
                     onClick={() => handleSetDefaultDevice(device.deviceId, kind)}
                   >
-                    {currentDevice === device.deviceId ? (
+                    {currentDeviceId === device.deviceId ? (
                       <Check className="h-4 w-4" />
                     ) : (
                       '设为默认'
@@ -315,7 +314,7 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
         ) : (
           <>
             {/* 音频输入设备 */}
-            {renderDeviceList(audioInputs, 'audioinput', audioDevice)}
+            {renderDeviceList(audioInputs, 'audioinput', audioDevice?.deviceId)}
 
             <Separator />
 
@@ -325,7 +324,7 @@ export function DevicePanel({ className, onClose }: DevicePanelProps) {
             <Separator />
 
             {/* 视频输入设备 */}
-            {renderDeviceList(videoInputs, 'videoinput', videoDevice)}
+            {renderDeviceList(videoInputs, 'videoinput', videoDevice?.deviceId)}
           </>
         )}
 

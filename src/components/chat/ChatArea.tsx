@@ -34,11 +34,13 @@ export function ChatArea({
   const [showSearch, setShowSearch] = useState(false)
 
   // 过滤消息
+  const displayMessages = messages.filter(msg => msg.sender !== 'system')
+
   const filteredMessages = searchQuery
-    ? messages.filter(msg =>
+    ? displayMessages.filter(msg =>
         msg.content.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : messages
+    : displayMessages
 
   // 获取AI状态显示
   const getAIStatusBadge = () => {

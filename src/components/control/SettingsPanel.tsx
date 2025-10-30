@@ -36,13 +36,20 @@ export function SettingsPanel({ className, onClose }: SettingsPanelProps) {
 
   // 更新临时设置
   const updateTempSetting = (category: string, key: string, value: any) => {
-    setTempSettings(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category as keyof typeof prev],
-        [key]: value
+    setTempSettings(prev => {
+      const categoryKey = category as keyof typeof prev
+      const categoryValue = prev[categoryKey]
+      if (typeof categoryValue === 'object' && categoryValue !== null) {
+        return {
+          ...prev,
+          [category]: {
+            ...categoryValue,
+            [key]: value
+          }
+        }
       }
-    }))
+      return prev
+    })
   }
 
   // 更新根级设置

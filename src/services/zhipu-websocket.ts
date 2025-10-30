@@ -1,6 +1,3 @@
-import { useAppStore } from '@/stores/useAppStore'
-import { useChatStore } from '@/stores/useChatStore'
-import { useToast } from '@/hooks/use-toast'
 
 // WebSocket连接状态枚举
 export enum SocketStatus {
@@ -24,12 +21,17 @@ export enum MessageType {
   COMMIT = 'audio.commit',
   COMMITED = 'commited',
 
+  // 文本相关
+  TEXT_APPEND = 'text.append',
+
   // 响应相关
   RESPONSE_CREATE = 'response.create',
   RESPONSE_CREATED = 'response.created',
   RESPONSE_CANCEL = 'response.cancel',
   RESPONSE_AUDIO_TEXT = 'response.audio.text',
   RESPONSE_AUDIO = 'response.audio',
+  RESPONSE_AUDIO_DELTA = 'response.audio.delta',
+  RESPONSE_TEXT_DELTA = 'response.text.delta',
   RESPONSE_DONE = 'response.done',
 
   // 对话相关
@@ -39,6 +41,7 @@ export enum MessageType {
   ERROR = 'error',
   SPEECH_STARTED = 'speech_started',
   SPEECH_STOPPED = 'speech_stopped',
+  HEARTBEAT = 'heartbeat',
 }
 
 export interface RealtimeMessage {
@@ -62,6 +65,7 @@ export interface ConnectionConfig {
 export class ZhipuRealtimeService {
   private ws: WebSocket | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
+  private heartbeatTimer: NodeJS.Timeout | null = null
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 2000
@@ -441,7 +445,7 @@ export class ZhipuRealtimeService {
   // 处理响应完成
   private handleResponseDone() {
     if (this.currentResponse) {
-      addMessage({
+      this.addMessage({
         id: Date.now().toString(),
         content: this.currentResponse,
         sender: 'assistant',
@@ -450,7 +454,7 @@ export class ZhipuRealtimeService {
       })
       this.currentResponse = ''
     }
-    setAiResponseStatus('idle')
+    this.setAiResponseStatus('idle')
   }
 
   // 处理语音开始

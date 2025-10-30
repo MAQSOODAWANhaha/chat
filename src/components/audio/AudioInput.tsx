@@ -43,10 +43,11 @@ export function AudioInput({ className, onStreamReady }: AudioInputProps) {
       setDevices(audioInputs)
 
       // 更新store中的设备信息
-      setAvailableDevices(prev => ({
-        ...prev,
-        audioInputs
-      }))
+      setAvailableDevices({
+        audioInputs,
+        audioOutputs: [],
+        videoInputs: []
+      })
 
       // 如果没有选择设备但有可用设备，选择第一个
       if (!selectedDevice && audioInputs.length > 0) {

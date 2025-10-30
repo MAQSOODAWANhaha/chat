@@ -104,7 +104,9 @@ export function useZhipuRealtime(options: UseZhipuRealtimeOptions = {}) {
           content: currentResponseRef.current,
           sender: 'assistant',
           type: 'text',
+          isRead: false,
           createdAt: new Date(),
+          updatedAt: new Date(),
         })
         currentResponseRef.current = ''
       }
@@ -206,7 +208,9 @@ export function useZhipuRealtime(options: UseZhipuRealtimeOptions = {}) {
         content: text,
         sender: 'user',
         type: 'text',
+        isRead: true,
         createdAt: new Date(),
+        updatedAt: new Date(),
       })
 
       // 设置AI状态为思考中

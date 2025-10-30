@@ -108,11 +108,11 @@ export class ZhipuService {
   }
 
   // 创建实时会话
-  async createRealtimeSession(config: RealtimeSessionConfig = {}) {
+  async createRealtimeSession(config: Partial<RealtimeSessionConfig> = {}) {
     try {
       const sessionConfig = RealtimeSessionConfigSchema.parse(config)
 
-      const response = await this.client.post<{ session_id: string, ...any }>(
+      const response = await this.client.post<{ session_id: string }>(
         '/realtime/sessions',
         sessionConfig
       )

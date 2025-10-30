@@ -25,6 +25,9 @@ interface CallState {
     audioOutputs: MediaDeviceInfo[]
     videoInputs: MediaDeviceInfo[]
   }
+  audioDevice?: MediaDeviceInfo
+  videoDevice?: MediaDeviceInfo
+  screenStream?: MediaStream | null
 
   // 通话质量指标
   connectionStats: {
@@ -51,6 +54,9 @@ interface CallState {
   updateParticipant: (participantId: string, updates: Partial<Participant>) => void
 
   setAvailableDevices: (devices: CallState['availableDevices']) => void
+  setAudioDevice: (device: MediaDeviceInfo) => void
+  setVideoDevice: (device: MediaDeviceInfo) => void
+  testDevice: (device: MediaDeviceInfo) => void
   updateConnectionStats: (stats: Partial<CallState['connectionStats']>) => void
 
   // 通话控制
@@ -83,6 +89,9 @@ export const useCallStore = create<CallState>()(
         audioOutputs: [],
         videoInputs: [],
       },
+      audioDevice: undefined,
+      videoDevice: undefined,
+      screenStream: null,
 
       connectionStats: {
         bandwidth: 0,
@@ -134,11 +143,11 @@ export const useCallStore = create<CallState>()(
             // 这里应该将屏幕流添加到通话中
             // 实际实现需要与WebRTC逻辑结合
 
-            set({ isScreenSharing: true })
+            set({ isScreenSharing: true, screenStream })
 
             // 监听屏幕共享结束
             screenStream.getVideoTracks()[0].addEventListener('ended', () => {
-              set({ isScreenSharing: false })
+              set({ isScreenSharing: false, screenStream: null })
             })
           } catch (error) {
             console.error('屏幕共享失败:', error)
@@ -146,7 +155,7 @@ export const useCallStore = create<CallState>()(
           }
         } else {
           // 停止屏幕共享
-          set({ isScreenSharing: false })
+          set({ isScreenSharing: false, screenStream: null })
         }
       },
 
@@ -164,6 +173,12 @@ export const useCallStore = create<CallState>()(
       })),
 
       setAvailableDevices: (availableDevices) => set({ availableDevices }),
+      setAudioDevice: (device) => set({ audioDevice: device }),
+      setVideoDevice: (device) => set({ videoDevice: device }),
+      testDevice: (device) => {
+        console.log('正在测试设备:', device)
+        // 可以在这里实现播放测试音或显示视频预览的逻辑
+      },
       updateConnectionStats: (stats) => set((state) => ({
         connectionStats: { ...state.connectionStats, ...stats }
       })),

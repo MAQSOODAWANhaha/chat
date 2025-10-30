@@ -71,7 +71,7 @@ export function VideoOutput({
   // 开始屏幕共享
   const startScreenShare = async () => {
     try {
-      const constraints: DisplayMediaStreamConstraints = {
+      const constraints: MediaStreamConstraints = {
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },

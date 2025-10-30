@@ -13,10 +13,17 @@ export interface User extends BaseEntity {
   settings: UserSettings
 }
 
+export interface ApiSettings {
+  apiKey: string
+  baseUrl: string
+  wsUrl: string
+}
+
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system'
   language: 'zh-CN' | 'en-US'
   notifications: boolean
+  api: ApiSettings
   audio: AudioSettings
   video: VideoSettings
 }
@@ -32,6 +39,7 @@ export interface AudioSettings {
 
 export interface VideoSettings {
   inputDevice?: string
+  device?: MediaDeviceInfo
   resolution: '360p' | '720p' | '1080p' | '4K'
   frameRate: 15 | 30 | 60
   quality: 'low' | 'medium' | 'high'
@@ -62,8 +70,8 @@ export interface Participant {
 // 消息相关类型
 export interface Message extends BaseEntity {
   content: string
-  type: 'text' | 'audio' | 'image' | 'file'
-  sender: 'user' | 'assistant'
+  type: 'text' | 'audio' | 'image' | 'file' | 'system'
+  sender: 'user' | 'assistant' | 'system'
   isRead: boolean
   metadata?: MessageMetadata
 }

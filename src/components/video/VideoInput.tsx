@@ -49,7 +49,7 @@ export function VideoInput({
 
       // 如果没有选择设备但有可用设备，选择第一个
       if (!videoDevice && videoInputs.length > 0) {
-        const defaultDevice = videoInputs[0].deviceId
+        const defaultDevice = videoInputs[0]
         setVideoDevice(defaultDevice)
       }
     } catch (error) {
@@ -122,12 +122,12 @@ export function VideoInput({
   }
 
   // 切换视频设备
-  const handleDeviceChange = async (deviceId: string) => {
-    setVideoDevice(deviceId)
+  const handleDeviceChange = async (device: MediaDeviceInfo) => {
+    setVideoDevice(device)
 
     // 如果当前视频已启用，重新启动视频流
     if (isVideoEnabled) {
-      await startVideoStream(deviceId)
+      await startVideoStream(device.deviceId)
     }
   }
 
@@ -191,7 +191,8 @@ export function VideoInput({
   // 视频状态变化时处理
   useEffect(() => {
     if (isVideoEnabled && videoDevice) {
-      startVideoStream(videoDevice)
+      const deviceId = typeof videoDevice === 'string' ? videoDevice : videoDevice.deviceId
+      startVideoStream(deviceId)
       startStatsMonitoring()
     } else {
       stopStatsMonitoring()
@@ -256,15 +257,23 @@ export function VideoInput({
             </Button>
           </div>
           <Select
-            value={videoDevice || ''}
-            onValueChange={handleDeviceChange}
+            value={typeof videoDevice === 'string' ? videoDevice : videoDevice?.deviceId || ''}
+            onValueChange={(deviceId) => {
+              const device = devices.find(d => d.deviceId === deviceId)
+              if (device) {
+                handleDeviceChange(device)
+              }
+            }}
             disabled={devices.length === 0 || isLoading}
           >
             <SelectTrigger>
               <SelectValue placeholder="选择摄像头设备">
                 {videoDevice ? (
-                  devices.find(d => d.deviceId === videoDevice)?.label ||
-                  `摄像头 ${videoDevice.slice(0, 8)}`
+                  (() => {
+                    const deviceId = typeof videoDevice === 'string' ? videoDevice : videoDevice.deviceId
+                    const device = devices.find(d => d.deviceId === deviceId)
+                    return device?.label || `摄像头 ${deviceId.slice(0, 8)}`
+                  })()
                 ) : '选择摄像头设备'}
               </SelectValue>
             </SelectTrigger>

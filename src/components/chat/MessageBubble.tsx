@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
 export interface Message {
   id: string
   content: string
-  sender: 'user' | 'assistant'
-  type: 'text' | 'audio' | 'image' | 'file'
+  sender: 'user' | 'assistant' | 'system'
+  type: 'text' | 'audio' | 'image' | 'file' | 'system'
   createdAt: Date
   metadata?: {
     audioUrl?: string
@@ -58,6 +58,12 @@ export function MessageBubble({
 
   const renderMessageContent = () => {
     switch (message.type) {
+      case 'system':
+        return (
+          <p className="text-xs text-center italic text-muted-foreground">
+            {message.content}
+          </p>
+        )
       case 'audio':
         return (
           <div className="space-y-2">

@@ -168,10 +168,10 @@ export class VoiceProcessor {
       if (this.isSpeechActive) {
         // 如果正在说话，合并缓冲区的数据
         if (this.aheadChunks.length > 0) {
-          const aheadChunksData = this.aheadChunks.reduce((acc, chunk) => {
+          const aheadChunksData = this.aheadChunks.reduce((acc: Float32Array, chunk: Float32Array) => {
             return this.concatFloat32Array(acc, chunk)
           }, new Float32Array(0))
-          audioData = this.concatFloat32Array(aheadChunksData, audioData)
+          audioData = new Float32Array(this.concatFloat32Array(aheadChunksData, audioData))
           this.aheadChunks = []
         }
         this.recordPCMData = this.concatFloat32Array(this.recordPCMData, audioData)

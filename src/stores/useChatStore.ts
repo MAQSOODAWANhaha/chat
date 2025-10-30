@@ -16,7 +16,7 @@ interface ChatState {
 
   // AI状态
   isTyping: boolean
-  aiResponseStatus: 'idle' | 'thinking' | 'responding' | 'error'
+  aiResponseStatus: 'idle' | 'thinking' | 'responding' | 'speaking' | 'error'
 
   // 历史对话
   conversationHistory: ConversationContext[]
@@ -40,7 +40,7 @@ interface ChatState {
   setError: (error: string | null) => void
 
   // 消息操作
-  sendMessage: (content: string, type?: Message['type']) => Promise<void>
+  sendTextMessage: (content: string, type?: Message['type']) => Promise<void>
   sendAudioMessage: (audioBlob: Blob) => Promise<void>
   resendMessage: (messageId: string) => Promise<void>
 
@@ -48,6 +48,8 @@ interface ChatState {
   createNewConversation: () => ConversationContext
   loadConversationHistory: () => Promise<void>
   deleteConversation: (conversationId: string) => Promise<void>
+  clearMessages: () => void
+  exportMessages: () => void
 
   // 录音操作
   startRecording: () => void
@@ -108,7 +110,7 @@ export const useChatStore = create<ChatState>()(
       setError: (error) => set({ error }),
 
       // 消息操作
-      sendMessage: async (content, type = 'text') => {
+      sendTextMessage: async (content, type = 'text') => {
         const { addMessage, setIsTyping, setAiResponseStatus } = get()
 
         try {
@@ -205,7 +207,7 @@ export const useChatStore = create<ChatState>()(
       },
 
       resendMessage: async (messageId) => {
-        const { messages, sendMessage } = get()
+        const { messages, sendTextMessage } = get()
         const message = messages.find(msg => msg.id === messageId)
 
         if (message && message.sender === 'user') {
@@ -215,7 +217,7 @@ export const useChatStore = create<ChatState>()(
           }))
 
           // 重新发送
-          await sendMessage(message.content, message.type)
+          await sendTextMessage(message.content, message.type)
         }
       },
 
@@ -269,6 +271,13 @@ export const useChatStore = create<ChatState>()(
           console.error('删除对话失败:', error)
           set({ error: '删除对话失败' })
         }
+      },
+
+      clearMessages: () => get().clearCurrentConversation(),
+
+      exportMessages: () => {
+        console.log('导出消息...')
+        // 这里可以实现将消息导出为JSON或CSV文件的逻辑
       },
 
       // 录音操作

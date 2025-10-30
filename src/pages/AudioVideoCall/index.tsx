@@ -420,12 +420,11 @@ export default function AudioVideoCall() {
                   </TabsContent>
 
                   <TabsContent value="chat" className="h-[500px] mt-4">
-                    <ChatArea
-                      showHeader={true}
-                      showInput={aiConnected}
-                      maxHeight="500px"
-                      onSendMessage={handleSendMessage}
-                    />
+          <ChatArea
+            showHeader={true}
+            showInput={true}
+            maxHeight="calc(100vh - 200px)"
+          />
                   </TabsContent>
                 </Tabs>
               </CardContent>

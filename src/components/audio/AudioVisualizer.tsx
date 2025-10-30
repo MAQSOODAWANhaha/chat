@@ -254,7 +254,7 @@ export function VoiceActivityDetector({
           if (normalizedValue > threshold) {
             if (!isSpeaking) {
               setIsSpeaking(true)
-              onActivityStart?.onActivityStart?.()
+              onActivityStart?.()
             }
 
             // 清除之前的超时
@@ -265,7 +265,7 @@ export function VoiceActivityDetector({
             // 设置新的超时
             previousTimeoutRef.current = setTimeout(() => {
               setIsSpeaking(false)
-              onActivityEnd?.onActivityEnd?.()
+              onActivityEnd?.()
             }, 500)
           }
 

@@ -17,6 +17,7 @@ interface AppState {
   // 用户设置
   settings: UserSettings
   updateSettings: (settings: Partial<UserSettings>) => void
+  resetSettings: () => void
 
   // 通话状态
   currentCall: CallSession | null
@@ -112,6 +113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateSettings: (newSettings) => set((state) => ({
     settings: { ...state.settings, ...newSettings }
   })),
+  resetSettings: () => set({ settings: defaultSettings }),
 
   // 通话状态
   currentCall: null,

@@ -260,7 +260,7 @@ export function VideoGrid({
       )}>
         {streams.map(stream => {
           const isMain = hasMainStream && stream.id === focusedStreamId
-          return renderVideoStream(stream, isMain)
+          return renderVideoStream(stream, !!isMain)
         })}
       </div>
 
