@@ -69,8 +69,12 @@ export function useZhipuRealtime(options: UseZhipuRealtimeOptions = {}) {
   const setupMessageHandlers = useCallback((service: ZhipuRealtimeService) => {
     // 会话创建成功
     service.onMessage(MessageType.SESSION_CREATED, (message) => {
-      console.log('会话已创建:', message.data)
-      setSessionId(message.data.id)
+      // 智谱返回的会话信息在 session 字段内
+      const sessionInfo = message.session ?? message.data ?? null
+      console.log('会话已创建:', sessionInfo)
+      if (sessionInfo?.id) {
+        setSessionId(sessionInfo.id)
+      }
       setIsConnected(true)
       setError(null)
     })
