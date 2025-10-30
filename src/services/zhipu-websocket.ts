@@ -243,6 +243,11 @@ export class ZhipuRealtimeService {
             title: '连接成功',
             description: '智谱AI实时服务已连接',
           })
+          try {
+            this.createSession()
+          } catch (error) {
+            console.error('发送会话创建事件失败:', error)
+          }
           resolve()
         }
 
