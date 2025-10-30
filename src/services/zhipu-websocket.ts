@@ -1,4 +1,3 @@
-
 // WebSocket连接状态枚举
 export enum SocketStatus {
   CONNECTING = 'CONNECTING',
@@ -51,15 +50,31 @@ export interface RealtimeMessage {
 }
 
 export interface ConnectionConfig {
-  apiKey: string
-  domain?: string
-  proxyPath?: string
-  model?: string
-  voice?: string
-  instructions?: string
-  input_audio_format?: string
-  output_audio_format?: string
-  temperature?: number
+  apiKey: string;
+  domain?: string;
+  proxyPath?: string;
+  model?: string;
+  modalities?: string[];
+  turn_detection?: {
+    type: string;
+  };
+  instructions?: string;
+  beta_fields?: {
+    chat_mode: string;
+    tts_source: string;
+    auto_search: boolean;
+    greeting_config: {
+      enable: boolean;
+      content: string;
+    };
+  };
+  voice?: string;
+  output_audio_format?: string;
+  input_audio_format?: string;
+  tools?: any[];
+  input_audio_noise_reduction?: {
+    type: string;
+  };
 }
 
 export class ZhipuRealtimeService {
@@ -93,11 +108,27 @@ export class ZhipuRealtimeService {
       domain: 'wss://open.bigmodel.cn',
       proxyPath: '/api/paas/v4/realtime',
       model: 'glm-4-realtime',
-      voice: 'alloy',
+      modalities: ['audio', 'text'],
+      turn_detection: {
+        type: 'client_vad',
+      },
       instructions: '你是一个智能助手，请用简洁明了的语言回答问题。',
-      input_audio_format: 'pcm16',
-      output_audio_format: 'pcm16',
-      temperature: 0.7,
+      beta_fields: {
+        chat_mode: 'audio',
+        tts_source: 'e2e',
+        auto_search: false,
+        greeting_config: {
+          enable: false,
+          content: '您好！我是智能助理彤彤，请问有什么可以帮您？',
+        },
+      },
+      voice: 'alloy',
+      output_audio_format: 'pcm',
+      input_audio_format: 'wav',
+      tools: [],
+      input_audio_noise_reduction: {
+        type: 'near_field',
+      },
       ...config
     }
 
@@ -130,8 +161,7 @@ export class ZhipuRealtimeService {
       const url = `${this.config.domain}${this.config.proxyPath}?Authorization=${this.config.apiKey}`
 
       try {
-        // 根据分析文档，可能需要特定的协议配置
-        this.ws = new WebSocket(url, this.config.apiKey)
+        this.ws = new WebSocket(url)
 
         // 设置WebSocket二进制类型
         this.ws.binaryType = 'blob'
@@ -147,10 +177,6 @@ export class ZhipuRealtimeService {
             title: '连接成功',
             description: '智谱AI实时服务已连接',
           })
-
-          // 暂时不自动创建会话，等待用户操作
-          // this.createSession()
-
           resolve()
         }
 
@@ -283,7 +309,6 @@ export class ZhipuRealtimeService {
       instructions: this.config.instructions,
       input_audio_format: this.config.input_audio_format,
       output_audio_format: this.config.output_audio_format,
-      temperature: this.config.temperature,
     })
   }
 
@@ -341,350 +366,29 @@ export class ZhipuRealtimeService {
   // 处理会话创建成功
   private handleSessionCreated(message: any) {
     console.log('会话创建成功:', message)
-    // 根据分析文档，会话创建成功后立即发送会话参数更新
-    // 但是这里需要等待一个tick，确保连接状态已经更新
     setTimeout(() => {
       this.updateSession()
     }, 100)
   }
 
-import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
-import type { Message, ConversationContext } from '@/types'
-
-interface ChatState {
-  // 当前对话
-  currentConversation: ConversationContext | null
-  messages: Message[]
-  isLoading: boolean
-  error: string | null
-
-  // 输入状态
-  inputValue: string
-  isRecording: boolean
-  recordingDuration: number
-
-  // AI状态
-  isTyping: boolean
-  aiResponseStatus: 'idle' | 'thinking' | 'responding' | 'speaking' | 'error'
-
-  // 历史对话
-  conversationHistory: ConversationContext[]
-  historyLoading: boolean
-
-  // Actions
-  setCurrentConversation: (conversation: ConversationContext | null) => void
-  setMessages: (messages: Message[]) => void
-  addMessage: (message: Message) => void
-  updateMessage: (messageId: string, updates: Partial<Message>) => void
-  deleteMessage: (messageId: string) => void
-
-  setInputValue: (value: string) => void
-  setIsRecording: (recording: boolean) => void
-  setRecordingDuration: (duration: number) => void
-
-  setIsTyping: (typing: boolean) => void
-  setAiResponseStatus: (status: ChatState['aiResponseStatus']) => void
-
-  setLoading: (loading: boolean) => void
-  setError: (error: string | null) => void
-
-  // 消息操作
-  sendTextMessage: (content: string, type?: Message['type']) => Promise<void>
-  sendAudioMessage: (audioBlob: Blob) => Promise<void>
-  resendMessage: (messageId: string) => Promise<void>
-
-  // 对话操作
-  createNewConversation: () => ConversationContext
-  loadConversationHistory: () => Promise<void>
-  deleteConversation: (conversationId: string) => Promise<void>
-  clearMessages: () => void
-  exportMessages: () => void
-
-  // 录音操作
-  startRecording: () => void
-  stopRecording: () => void
-  cancelRecording: () => void
-
-  // 清理
-  clearCurrentConversation: () => void
-  reset: () => void
-}
-
-export const useChatStore = create<ChatState>()(
-  devtools(
-    (set, get) => ({
-      // 初始状态
-      currentConversation: null,
-      messages: [],
-      isLoading: false,
-      error: null,
-
-      inputValue: '',
-      isRecording: false,
-      recordingDuration: 0,
-
-      isTyping: false,
-      aiResponseStatus: 'idle',
-
-      conversationHistory: [],
-      historyLoading: false,
-
-      // Actions
-      setCurrentConversation: (currentConversation) => set({ currentConversation }),
-
-      setMessages: (messages) => set({ messages }),
-
-      addMessage: (message) => set((state) => ({
-        messages: [...state.messages, message]
-      })),
-
-      updateMessage: (messageId, updates) => set((state) => ({
-        messages: state.messages.map(msg =>
-          msg.id === messageId ? { ...msg, ...updates } : msg
-        )
-      })),
-
-      deleteMessage: (messageId) => set((state) => ({
-        messages: state.messages.filter(msg => msg.id !== messageId)
-      })),
-
-      setInputValue: (inputValue) => set({ inputValue }),
-      setIsRecording: (isRecording) => set({ isRecording }),
-      setRecordingDuration: (recordingDuration) => set({ recordingDuration }),
-
-      setIsTyping: (isTyping) => set({ isTyping }),
-      setAiResponseStatus: (aiResponseStatus) => set({ aiResponseStatus }),
-
-      setLoading: (isLoading) => set({ isLoading }),
-      setError: (error) => set({ error }),
-
-      // 消息操作
-      sendTextMessage: async (content, type = 'text') => {
-        const { addMessage, setIsTyping, setAiResponseStatus } = get()
-
-        try {
-          // 创建用户消息
-          const userMessage: Message = {
-            id: `msg-${Date.now()}`,
-            content,
-            type,
-            sender: 'user',
-            isRead: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-
-          addMessage(userMessage)
-          set({ inputValue: '' })
-
-          // 设置AI响应状态
-          setIsTyping(true)
-          setAiResponseStatus('thinking')
-
-          // 这里将实现实际的AI响应逻辑
-          // 包括发送消息到智谱AI Realtime API
-
-          // 模拟AI响应延迟
-          await new Promise(resolve => setTimeout(resolve, 1500))
-
-          setAiResponseStatus('responding')
-
-          // 模拟AI响应
-          await new Promise(resolve => setTimeout(resolve, 1000))
-
-          // 创建AI响应消息
-          const aiMessage: Message = {
-            id: `msg-${Date.now() + 1}`,
-            content: `我收到了您的消息："${content}"。这是AI助手的回复。`,
-            type: 'text',
-            sender: 'assistant',
-            isRead: false,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-
-          addMessage(aiMessage)
-          setAiResponseStatus('idle')
-          setIsTyping(false)
-
-        } catch (error) {
-          console.error('发送消息失败:', error)
-          set({ error: error instanceof Error ? error.message : '发送消息失败' })
-          setAiResponseStatus('error')
-          setIsTyping(false)
-        }
-      },
-
-      sendAudioMessage: async (audioBlob) => {
-        const { addMessage, setIsRecording, setAiResponseStatus } = get()
-
-        try {
-          // 创建音频消息
-          const audioMessage: Message = {
-            id: `msg-${Date.now()}`,
-            content: '语音消息',
-            type: 'audio',
-            sender: 'user',
-            isRead: true,
-            metadata: {
-              audioUrl: URL.createObjectURL(audioBlob),
-              audioDuration: audioBlob.size / 1000, // 简化计算
-              fileSize: audioBlob.size,
-              fileType: audioBlob.type,
-            },
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-
-          addMessage(audioMessage)
-
-          // 设置AI响应状态
-          setIsRecording(true)
-          setAiResponseStatus('thinking')
-
-          // 这里将实现语音识别和AI响应逻辑
-
-          setAiResponseStatus('idle')
-          setIsRecording(false)
-
-        } catch (error) {
-          console.error('发送语音消息失败:', error)
-          set({ error: error instanceof Error ? error.message : '发送语音消息失败' })
-          setAiResponseStatus('error')
-          setIsRecording(false)
-        }
-      },
-
-      resendMessage: async (messageId) => {
-        const { messages, sendTextMessage } = get()
-        const message = messages.find(msg => msg.id === messageId)
-
-        if (message && message.sender === 'user') {
-          // 删除原消息
-          set(state => ({
-            messages: state.messages.filter(msg => msg.id !== messageId)
-          }))
-
-          // 重新发送
-          await sendTextMessage(message.content, message.type)
-        }
-      },
-
-      // 对话操作
-      createNewConversation: () => {
-        const conversation: ConversationContext = {
-          id: `conv-${Date.now()}`,
-          messages: [],
-          model: {
-            id: 'zhipu-realtime',
-            name: '智谱Realtime',
-            description: '智谱AI实时对话模型',
-            maxTokens: 4096,
-            temperature: 0.7,
-            topP: 0.9,
-          },
-          settings: {
-            voiceEnabled: true,
-            autoResponse: true,
-            responseDelay: 0,
-            language: 'zh-CN',
-          },
-        }
-
-        set({ currentConversation: conversation, messages: [] })
-        return conversation
-      },
-
-      loadConversationHistory: async () => {
-        set({ historyLoading: true })
-
-        try {
-          // 这里将实现从本地存储或服务器加载对话历史
-          const mockHistory: ConversationContext[] = []
-
-          set({ conversationHistory: mockHistory })
-        } catch (error) {
-          console.error('加载对话历史失败:', error)
-          set({ error: '加载对话历史失败' })
-        } finally {
-          set({ historyLoading: false })
-        }
-      },
-
-      deleteConversation: async (conversationId) => {
-        try {
-          set(state => ({
-            conversationHistory: state.conversationHistory.filter(conv => conv.id !== conversationId)
-          }))
-        } catch (error) {
-          console.error('删除对话失败:', error)
-          set({ error: '删除对话失败' })
-        }
-      },
-
-      clearMessages: () => get().clearCurrentConversation(),
-
-      exportMessages: () => {
-        console.log('导出消息...')
-        // 这里可以实现将消息导出为JSON或CSV文件的逻辑
-      },
-
-      // 录音操作
-      startRecording: () => {
-        set({ isRecording: true, recordingDuration: 0 })
-
-        // 开始计时
-        const interval = setInterval(() => {
-          const { recordingDuration, isRecording } = get()
-          if (isRecording && recordingDuration < 60000) { // 最多60秒
-            set(state => ({ recordingDuration: state.recordingDuration + 100 }))
-          } else {
-            clearInterval(interval)
-            set({ isRecording: false })
-          }
-        }, 100)
-      },
-
-      stopRecording: () => {
-        set({ isRecording: false })
-        // 这里将实现录音停止后的处理逻辑
-      },
-
-      cancelRecording: () => {
-        set({ isRecording: false, recordingDuration: 0 })
-      },
-
-      clearCurrentConversation: () => {
-        set({
-          currentConversation: null,
-          messages: [],
-          inputValue: '',
-          isTyping: false,
-          aiResponseStatus: 'idle',
-          error: null,
-        })
-      },
-
-      reset: () => set({
-        currentConversation: null,
-        messages: [],
-        isLoading: false,
-        error: null,
-        inputValue: '',
-        isRecording: false,
-        recordingDuration: 0,
-        isTyping: false,
-        aiResponseStatus: 'idle',
-        conversationHistory: [],
-        historyLoading: false,
-      }),
-    }),
-    {
-      name: 'chat-store',
-    }
-  )
-)
+  // 更新会话参数
+  private updateSession() {
+    this.sendMessage({
+      type: MessageType.SESSION_UPDATE,
+      session: {
+        model: this.config.model,
+        modalities: this.config.modalities,
+        turn_detection: this.config.turn_detection,
+        instructions: this.config.instructions,
+        beta_fields: this.config.beta_fields,
+        voice: this.config.voice,
+        output_audio_format: this.config.output_audio_format,
+        input_audio_format: this.config.input_audio_format,
+        tools: this.config.tools,
+        input_audio_noise_reduction: this.config.input_audio_noise_reduction,
+      }
+    })
+  }
 
   // 处理会话更新成功
   private handleSessionUpdated(message: any) {
