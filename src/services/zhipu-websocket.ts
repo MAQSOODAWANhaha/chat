@@ -16,21 +16,27 @@ export enum MessageType {
   SESSION_UPDATED = 'session.updated',
 
   // 音频相关
-  AUDIO_APPEND = 'audio.append',
-  COMMIT = 'audio.commit',
-  COMMITED = 'commited',
+  AUDIO_APPEND = 'input_audio_buffer.append',
+  AUDIO_COMMIT = 'input_audio_buffer.commit',
+  AUDIO_COMMITTED = 'input_audio_buffer.committed',
+  AUDIO_CLEAR = 'input_audio_buffer.clear',
+  AUDIO_CLEARED = 'input_audio_buffer.cleared',
+  VIDEO_APPEND = 'input_audio_buffer.append_video_frame',
 
   // 文本相关
-  TEXT_APPEND = 'text.append',
+  TEXT_APPEND = 'input_text_buffer.append',
 
   // 响应相关
   RESPONSE_CREATE = 'response.create',
   RESPONSE_CREATED = 'response.created',
   RESPONSE_CANCEL = 'response.cancel',
-  RESPONSE_AUDIO_TEXT = 'response.audio.text',
-  RESPONSE_AUDIO = 'response.audio',
+  RESPONSE_CANCELLED = 'response.cancelled',
+  RESPONSE_AUDIO_TRANSCRIPT_DELTA = 'response.audio_transcript.delta',
+  RESPONSE_AUDIO_TRANSCRIPT_DONE = 'response.audio_transcript.done',
   RESPONSE_AUDIO_DELTA = 'response.audio.delta',
+  RESPONSE_AUDIO_DONE = 'response.audio.done',
   RESPONSE_TEXT_DELTA = 'response.text.delta',
+  RESPONSE_TEXT_DONE = 'response.text.done',
   RESPONSE_DONE = 'response.done',
 
   // 对话相关
@@ -122,7 +128,7 @@ export class ZhipuRealtimeService {
           content: '您好！我是智能助理彤彤，请问有什么可以帮您？',
         },
       },
-      voice: 'alloy',
+      voice: 'tongtong',
       output_audio_format: 'pcm',
       input_audio_format: 'wav',
       tools: [],
@@ -135,6 +141,24 @@ export class ZhipuRealtimeService {
     this.toast = dependencies.toast
     this.addMessage = dependencies.addMessage
     this.setAiResponseStatus = dependencies.setAiResponseStatus
+  }
+
+  private buildWebSocketUrl() {
+    try {
+      const domain = this.config.domain ?? 'wss://open.bigmodel.cn'
+      const proxyPath = this.config.proxyPath ?? ''
+
+      const baseUrl = proxyPath
+        ? new URL(proxyPath, domain)
+        : new URL(domain)
+
+      const url = new URL(baseUrl.toString())
+      url.searchParams.set('Authorization', this.config.apiKey)
+      return url.toString()
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(`无效的WebSocket地址: ${reason}`)
+    }
   }
 
   // 建立WebSocket连接
@@ -158,7 +182,7 @@ export class ZhipuRealtimeService {
       this.isConnecting = true
       this.updateConnectionState(false)
 
-      const url = `${this.config.domain}${this.config.proxyPath}?Authorization=${this.config.apiKey}`
+      const url = this.buildWebSocketUrl()
 
       try {
         this.ws = new WebSocket(url)
@@ -170,6 +194,8 @@ export class ZhipuRealtimeService {
           this.isConnecting = false
           this.isConnected = true
           this.reconnectAttempts = 0
+          this.clearReconnectTimer()
+          this.startHeartbeat()
           this.updateConnectionState(true)
 
           console.log('%c WebSocket连接已建立', 'color: #4ade80')
@@ -187,6 +213,7 @@ export class ZhipuRealtimeService {
         this.ws.onclose = (event) => {
           this.isConnecting = false
           this.isConnected = false
+          this.stopHeartbeat()
           this.updateConnectionState(false)
 
           console.log(`%c WebSocket连接已关闭: ${event.code} ${event.reason}`, 'color: #ef4444')
@@ -276,7 +303,7 @@ export class ZhipuRealtimeService {
   // 提交音频数据
   commitAudioData() {
     this.sendMessage({
-      type: MessageType.COMMIT
+      type: MessageType.AUDIO_COMMIT
     })
   }
 
@@ -333,20 +360,35 @@ export class ZhipuRealtimeService {
         case MessageType.ERROR:
           this.handleError(message)
           break
-        case MessageType.COMMITED:
-          this.handleCommited(message)
+        case MessageType.AUDIO_COMMITTED:
+          this.handleAudioCommitted(message)
           break
         case MessageType.RESPONSE_CREATED:
           this.handleResponseCreated(message)
           break
-        case MessageType.RESPONSE_AUDIO_TEXT:
-          this.handleResponseAudioText(message)
+        case MessageType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
+          this.handleResponseAudioTranscript(message)
           break
-        case MessageType.RESPONSE_AUDIO:
+        case MessageType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
+          this.handleResponseAudioTranscriptDone()
+          break
+        case MessageType.RESPONSE_AUDIO_DELTA:
           this.handleResponseAudio(message)
+          break
+        case MessageType.RESPONSE_AUDIO_DONE:
+          this.handleResponseAudioDone()
+          break
+        case MessageType.RESPONSE_TEXT_DELTA:
+          this.handleTextDelta(message)
+          break
+        case MessageType.RESPONSE_TEXT_DONE:
+          this.handleResponseTextDone()
           break
         case MessageType.RESPONSE_DONE:
           this.handleResponseDone()
+          break
+        case MessageType.RESPONSE_CANCELLED:
+          this.handleResponseCancelled(message)
           break
         case MessageType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
           this.handleInputAudioTranscriptionCompleted(message)
@@ -375,6 +417,7 @@ export class ZhipuRealtimeService {
   private updateSession() {
     this.sendMessage({
       type: MessageType.SESSION_UPDATE,
+      event_id: `evt_${Date.now()}`,
       session: {
         model: this.config.model,
         modalities: this.config.modalities,
@@ -396,7 +439,7 @@ export class ZhipuRealtimeService {
   }
 
   // 处理音频提交成功
-  private handleCommited(message: any) {
+  private handleAudioCommitted(message: any) {
     console.log('音频提交成功:', message)
     if (message.item_id) {
       this.currentResponseId = message.item_id
@@ -413,7 +456,7 @@ export class ZhipuRealtimeService {
   }
 
   // 处理AI回复文本
-  private handleResponseAudioText(message: any) {
+  private handleResponseAudioTranscript(message: any) {
     if (message.delta) {
       this.currentResponse += message.delta
       console.log('收到AI文本:', message.delta)
@@ -426,6 +469,23 @@ export class ZhipuRealtimeService {
       console.log('收到AI音频:', message.delta.length, '字符')
       // 这里可以播放音频数据
     }
+  }
+
+  private handleResponseAudioTranscriptDone() {
+    // 暂无额外逻辑，预留扩展能力
+  }
+
+  private handleResponseAudioDone() {
+    // 暂无额外逻辑，预留扩展能力
+  }
+
+  private handleResponseCancelled(message: any) {
+    console.log('响应已取消:', message)
+    this.setAiResponseStatus('idle')
+  }
+
+  private handleResponseTextDone() {
+    // 暂无额外逻辑，预留扩展能力
   }
 
   // 处理用户音频转录完成
@@ -463,9 +523,10 @@ export class ZhipuRealtimeService {
   // 处理文本数据
   private currentResponse = ''
   private handleTextDelta(message: any) {
-    if (message.data?.text) {
-      this.currentResponse += message.data.text
-      console.log('收到文本数据:', message.data.text)
+    const delta = message.delta ?? message.data?.text
+    if (delta) {
+      this.currentResponse += delta
+      console.log('收到文本数据:', delta)
     }
   }
 
