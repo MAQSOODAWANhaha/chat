@@ -127,7 +127,7 @@ export class ZhipuRealtimeService {
       this.isConnecting = true
       this.updateConnectionState(false)
 
-      const url = `${this.config.domain}${this.config.proxyPath}?Authorization=${encodeURIComponent(this.config.apiKey)}`
+      const url = `${this.config.domain}${this.config.proxyPath}?Authorization=${this.config.apiKey}`
 
       try {
         // 根据分析文档，可能需要特定的协议配置
