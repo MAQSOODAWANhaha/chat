@@ -1,47 +1,32 @@
-# ---- Stage 1: Build Frontend ----
-FROM docker.m.daocloud.io/node:18-alpine AS frontend
-WORKDIR /app/frontend
+# 多阶段构建
+FROM node:18-alpine AS builder
 
-COPY frontend/package.json ./
-RUN npm install
+# 设置工作目录
+WORKDIR /app
 
-COPY frontend/ .
+# 复制package文件
+COPY package*.json ./
+
+# 安装依赖
+RUN npm ci --only=production
+
+# 复制源代码
+COPY . .
+
+# 构建应用
 RUN npm run build
 
-# ---- Stage 2: Build Backend ----
-FROM docker.m.daocloud.io/rust:1.88.0-slim AS backend
-WORKDIR /app
+# 生产阶段
+FROM caddy:2-alpine
 
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# 复制Caddyfile配置
+COPY Caddyfile /etc/caddy/Caddyfile
 
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
+# 复制构建产物
+COPY --from=builder /app/dist /app/dist
 
-RUN cargo build --release
+# 暴露端口
+EXPOSE 80 443
 
-# ---- Stage 3: Final Runtime Image ----
-FROM docker.m.daocloud.io/debian:bookworm-slim
-LABEL maintainer="Codex CLI"
-LABEL description="Monolithic container for the language chat platform"
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=backend /app/target/release/chat /app/chat
-COPY --from=frontend /app/frontend/dist /app/static
-
-RUN mkdir -p /app/audio
-
-ENV HOST=0.0.0.0
-ENV PORT=3000
-ENV RUST_LOG=info
-
-EXPOSE 3000
-
-CMD ["/app/chat"]
+# 启动caddy
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

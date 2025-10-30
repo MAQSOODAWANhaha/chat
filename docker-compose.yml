@@ -1,42 +1,30 @@
-services:
-  app:
-    image: gghtrt520/chat:latest
-    container_name: chat
-    environment:
-      - HOST=0.0.0.0
-      - PORT=3000
-      - GEEKAI_APP_ID=${GEEKAI_APP_ID}
-      - GEEKAI_ACCESS_KEY=${GEEKAI_ACCESS_KEY}
-      - GEEKAI_RESOURCE_ID=${GEEKAI_RESOURCE_ID}
-      - GEEKAI_APP_KEY=${GEEKAI_APP_KEY}
-      - GEEKAI_DEFAULT_SPEAKER=${GEEKAI_DEFAULT_SPEAKER}
-      - GEEKAI_MODEL=${GEEKAI_MODEL}
-      - GEEKAI_AUDIO_CHANNEL=${GEEKAI_AUDIO_CHANNEL}
-      - GEEKAI_AUDIO_FORMAT=${GEEKAI_AUDIO_FORMAT}
-      - GEEKAI_AUDIO_SAMPLE_RATE=${GEEKAI_AUDIO_SAMPLE_RATE}
-    volumes:
-      - ./audio:/app/audio
-    expose:
-      - "3000"
-    restart: unless-stopped
+version: '3.8'
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: chat-caddy
-    depends_on:
-      - app
+services:
+  # 前端应用
+  realtime-frontend:
+    image: gghtrt520/chat:latest
+    pull_policy: always
     ports:
       - "80:80"
       - "443:443"
     environment:
+      - NODE_ENV=production
       - DOMAIN=${DOMAIN}
       - CADDY_EMAIL=${CADDY_EMAIL}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - realtime-network
+    volumes:
+      - ./data:/data
+      - ./data/caddy:/root/.local/share/caddy
 
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  realtime-network:
+    driver: bridge

@@ -10,10 +10,31 @@
         respond "OK" 200
     }
 
-    reverse_proxy app:3000 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+    # 静态文件服务
+    root * /app/dist
+    file_server
+
+    # SPA路由支持
+    @static {
+        file
+        path *.js *.css *.png *.jpg *.jpeg *.gif *.ico *.svg *.woff *.woff2 *.ttf *.eot
+    }
+
+    handle @static {
+        file_server
+    }
+
+    # SPA路由回退到index.html
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+
+    # 安全头部
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
     }
 }
