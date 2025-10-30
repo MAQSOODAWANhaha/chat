@@ -131,7 +131,7 @@ export class ZhipuRealtimeService {
 
       try {
         // 根据分析文档，可能需要特定的协议配置
-        this.ws = new WebSocket(url)
+        this.ws = new WebSocket(url, this.config.apiKey)
 
         // 设置WebSocket二进制类型
         this.ws.binaryType = 'blob'
