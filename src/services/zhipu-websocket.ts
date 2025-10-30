@@ -539,9 +539,7 @@ export class ZhipuRealtimeService {
   private handleSessionCreated(message: any) {
     console.log('会话创建成功:', message)
     this.serverSessionModel = message.session?.model ?? null
-    setTimeout(() => {
-      this.updateSession()
-    }, 100)
+    this.updateSession()
   }
 
   // 更新会话参数
@@ -555,7 +553,7 @@ export class ZhipuRealtimeService {
 
     this.sendMessage({
       type: MessageType.SESSION_UPDATE,
-      event_id: `evt_${Date.now()}`,
+      event_id: 'evt_fakeId',
       session: {
         model,
         modalities: this.config.modalities,
